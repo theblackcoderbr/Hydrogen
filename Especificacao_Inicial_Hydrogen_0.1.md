@@ -180,7 +180,6 @@ Os OSDs aparecem na lateral direita do monitor focado e representam alterações
 | Microfone | Nível e estado de mudo | Ajustar nível e alternar mudo |
 | Brilho | Nível atual | Ajustar brilho |
 | Mídia | Título e controles | Anterior, reproduzir/pausar e próxima |
-| Teclado | Caps Lock e Num Lock | Somente informativo |
 | Energia | Perfil ativo | Selecionar perfil disponível |
 
 #### Limites dos controles
@@ -333,6 +332,10 @@ Alterações válidas são recarregadas automaticamente. Quando houver ação po
 
 ## 9. Integrações e dependências
 
+A versão mínima e normativa do Quickshell para o Hydrogen 0.1 é a **0.3.1**. Implementação e revisão devem consultar a documentação oficial versionada dessa release. `master`, `quickshell-git` e exemplos escritos para outras versões não são fontes normativas. Versões posteriores somente podem ser declaradas compatíveis após validação explícita.
+
+Como o Quickshell pode depender da compatibilidade binária com a versão de Qt usada em sua compilação, a documentação de instalação e diagnóstico deve orientar a reconstrução ou reinstalação do pacote quando uma atualização de Qt produzir incompatibilidade.
+
 | Capacidade | Integração prevista |
 |---|---|
 | Janelas, foco, saídas e workspaces | IPC do Sway |
@@ -362,6 +365,7 @@ Quando um recurso não estiver disponível no hardware ou no serviço ativo, seu
 - Não oferecer configuração avançada de rede, incluindo IP, DNS, VPN, hotspot ou edição completa de perfis.
 - Não substituir bloqueador de tela, login manager ou agente de autenticação.
 - Não criar indexador próprio de arquivos.
+- Não detectar nem exibir estados de Caps Lock, Num Lock ou Scroll Lock no MVP.
 - Não gerar paleta dinâmica no MVP.
 - Não oferecer plugins ou módulos arbitrários no MVP.
 - Não oferecer suporte formal a outros compositores Wayland.
@@ -379,7 +383,7 @@ Quando um recurso não estiver disponível no hardware ou no serviço ativo, seu
 
 ## 12. Critérios de aceitação do Hydrogen 0.1
 
-1. O Hydrogen inicia com uma configuração padrão utilizável em uma sessão Sway.
+1. O Hydrogen inicia com uma configuração padrão utilizável em uma sessão Sway usando Quickshell 0.3.1.
 2. Uma barra inferior completa é criada em cada saída ativa.
 3. O botão do launcher abre o painel no monitor focado.
 4. Aplicativos do workspace visível são agrupados na barra, podem ser focados ou selecionados pela lista de janelas e mantêm ordem estável.
@@ -422,7 +426,7 @@ Quando um recurso não estiver disponível no hardware ou no serviço ativo, seu
 | 6. Painéis contextuais | Calendário, bateria, sessão, volume, rede e confirmações |
 | 7. Bandeja e indicadores | StatusNotifierItem, DBusMenu, overflow e indicadores permanentes |
 | 8. Infraestrutura de OSD | Pilha, posicionamento, foco, temporizador, atualização e interação compartilhada |
-| 9. Provedores de OSD | Áudio, microfone, brilho, mídia, teclado e perfis de energia |
+| 9. Provedores de OSD | Áudio, microfone, brilho, mídia e perfis de energia |
 | 10. Notificações | Servidor Freedesktop, pop-ups, ações, agrupamento, central, histórico e modo não perturbe |
 | 11. IPC e atalhos | Ações públicas, arquivo para `include`, exemplos e documentação do contrato IPC |
 | 12. Polimento | Animações, multimonitor, teclado, tolerância a falhas, empacotamento e documentação |
@@ -431,9 +435,7 @@ Cada componente deve ser concluído e testável antes do início do seguinte, ex
 
 ## 14. Decisões ainda abertas
 
-Estas decisões não devem ser fechadas por conveniência durante a implementação; cada uma altera de forma perceptível a experiência do painel tradicional.
-
-- Como detectar Caps Lock e Num Lock de forma portátil em sessões Sway?
+Nenhuma decisão funcional conhecida permanece aberta para o escopo atual. Novas decisões não devem ser fechadas por conveniência durante a implementação. Questões de viabilidade e escolha de backend devem ser tratadas como pesquisa técnica, sem reintroduzir recursos declarados como não objetivos.
 
 > **Definição e regra de escopo:** o Hydrogen é a camada visual cotidiana entre o Sway e o usuário de desktop tradicional: painel inferior, acesso a aplicativos, representação das janelas abertas, indicadores essenciais, launcher e controles contextuais. Uma nova função só deve entrar quando fizer parte dessa interação cotidiana; ser tecnicamente possível ou visualmente interessante não é justificativa suficiente.
 
