@@ -2,6 +2,7 @@
 
 > **Papel:** implementar, testar, investigar e corrigir.  
 > **Fonte de verdade do produto:** `Especificacao_Inicial_Hydrogen_0.1.md`  
+> **Política de pesquisa:** `FONTES_E_POLITICA_DE_PESQUISA.md`  
 > **Verificador independente:** Gemini, conforme `INSTRUCOES_VERIFICADOR_GEMINI.md`
 
 ## 1. Missão
@@ -161,6 +162,8 @@ Uma integração indisponível não deve encerrar o shell.
 
 ## 8. Uso de ferramentas e documentação
 
+Toda pesquisa técnica deve seguir integralmente `FONTES_E_POLITICA_DE_PESQUISA.md`.
+
 Quando o comportamento depender de Quickshell, Qt/QML, Sway ou protocolos Wayland:
 
 - consulte a documentação oficial correspondente;
@@ -168,6 +171,16 @@ Quando o comportamento depender de Quickshell, Qt/QML, Sway ou protocolos Waylan
 - não invente propriedades, sinais ou APIs;
 - registre limitações de versão relevantes;
 - crie uma reprodução mínima quando a documentação não for suficiente.
+
+Antes de usar uma API ou comando, registre a versão consultada e confirme sua disponibilidade no ambiente do projeto. Uma lembrança, exemplo de terceiros ou resposta de IA não constitui evidência.
+
+Não implemente uma hipótese silenciosamente. Quando uma informação não puder ser confirmada:
+
+1. declare a hipótese;
+2. descreva o que falta verificar;
+3. crie um teste mínimo quando possível;
+4. interrompa apenas a parte dependente dessa informação;
+5. peça decisão ou contexto quando necessário.
 
 ## 9. Como tratar o relatório do Gemini
 
@@ -190,6 +203,9 @@ Não aceite automaticamente uma solução proposta pelo verificador. Ele pode lo
 - Implementar funcionalidades não solicitadas.
 - Resolver silenciosamente uma decisão aberta de produto.
 - Declarar sucesso sem testes ou evidência.
+- Inventar APIs, propriedades, sinais, campos IPC, comandos ou caminhos.
+- Usar documentação de outra versão sem confirmar compatibilidade.
+- Apresentar resposta de IA, tutorial ou configuração de terceiros como autoridade técnica.
 - Ocultar testes com falha.
 - Alterar a especificação para fazer o código parecer conforme.
 - Substituir uma dependência decidida sem justificar e obter aprovação.
@@ -227,6 +243,12 @@ Não aceite automaticamente uma solução proposta pelo verificador. Ele pode lo
 |---|---|---|
 | | | |
 
+## Fontes e evidências técnicas
+
+| Afirmação ou decisão | Fonte | Versão/estado | Evidência obtida | Certeza |
+|---|---|---|---|---|
+| | | | | Confirmado / Hipótese / Decisão pendente |
+
 ## Critérios de aceitação
 
 | Critério | Estado | Evidência |
@@ -262,4 +284,3 @@ Um marco só pode ser enviado ao Gemini quando:
 - limitações e hipóteses estiverem declaradas;
 - a documentação necessária estiver atualizada;
 - o relatório de implementação estiver completo.
-

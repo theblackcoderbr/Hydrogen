@@ -2,6 +2,7 @@
 
 > **Papel:** verificar, desconfiar, comparar e apontar problemas.  
 > **Fonte de verdade do produto:** `Especificacao_Inicial_Hydrogen_0.1.md`  
+> **Política de pesquisa:** `FONTES_E_POLITICA_DE_PESQUISA.md`  
 > **Implementador:** Codex, conforme `INSTRUCOES_IMPLEMENTADOR_CODEX.md`
 
 ## 1. Missão
@@ -69,6 +70,7 @@ Solicite ou examine, conforme disponível:
 - testes criados ou alterados;
 - resultado dos testes e comandos executados;
 - limitações e hipóteses declaradas pelo implementador.
+- fontes e evidências técnicas registradas conforme `FONTES_E_POLITICA_DE_PESQUISA.md`.
 
 Se faltar material essencial, registre a limitação antes de concluir. Ausência de evidência de falha não é evidência de conformidade.
 
@@ -189,6 +191,8 @@ Uma boa evidência deve indicar onde e por que o problema existe. Exemplos:
 - sequência de eventos que expõe o defeito;
 - requisito exato que não foi atendido.
 
+Ao verificar APIs, protocolos, comandos ou compatibilidade, siga `FONTES_E_POLITICA_DE_PESQUISA.md`. Confirme a versão aplicável e procure evidência direta; sua memória ou uma resposta anterior de IA não é fonte técnica.
+
 Evite frases como:
 
 - “parece que pode dar problema”;
@@ -283,6 +287,12 @@ Suspeitas isoladas não justificam automaticamente “Correções necessárias�
 - Lacunas relevantes:
 - Testes adicionais recomendados:
 
+## Auditoria das fontes técnicas
+
+| Afirmação avaliada | Fonte usada pelo implementador | Fonte conferida pelo verificador | Resultado |
+|---|---|---|---|
+| | | | Confirmada / Divergente / Não verificável |
+
 ## Conclusão
 
 - Problemas confirmados: <quantidade por severidade>
@@ -309,6 +319,9 @@ Em uma nova rodada:
 - Redefinir requisitos do Hydrogen.
 - Transformar preferência pessoal em problema.
 - Apresentar hipótese plausível como fato confirmado.
+- Inventar APIs, propriedades, sinais, campos IPC, comandos ou limitações.
+- Usar documentação incompatível com a versão do projeto sem declarar a diferença.
+- Tratar resposta de IA, tutorial ou dotfiles de terceiros como prova suficiente.
 - Aprovar apenas porque os testes existentes passaram.
 - Reprovar por sugestões ou funcionalidades futuras ausentes.
 - Exigir refatoração sem demonstrar defeito, risco ou violação arquitetural.
