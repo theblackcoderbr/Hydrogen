@@ -163,7 +163,16 @@ As ações do sistema deverão passar por uma pequena camada de integração, ev
 
 ### 6.4 OSDs e controles contextuais
 
-Os OSDs aparecem na lateral direita do monitor focado e desaparecem após um período fixo sem interação. Eventos repetidos do mesmo tipo atualizam o painel existente em vez de criar várias instâncias.
+Os OSDs aparecem na lateral direita do monitor focado e representam alterações observadas pelos backends, independentemente de terem sido iniciadas pelo Hydrogen ou por outra ferramenta.
+
+- Cada OSD expira 3 segundos após o último evento ou interação.
+- Eventos repetidos do mesmo tipo atualizam o cartão existente, preservam sua posição na pilha e reiniciam o temporizador.
+- Tipos diferentes formam uma pilha de até três cartões.
+- O cartão mais recente entra na parte inferior, próximo à barra.
+- Quando um quarto tipo aparece, o cartão mais antigo é removido imediatamente.
+- Passagem do ponteiro, foco obtido por ação explícita ou manipulação de um controle pausa o temporizador. Ao terminar a interação, a contagem recomeça com 3 segundos completos.
+- Um OSD surgido automaticamente nunca solicita foco nem interrompe a janela ativa.
+- Um clique explícito pode conceder foco ao cartão para permitir interação.
 
 | OSD | Conteúdo | Interação |
 |---|---|---|
@@ -173,6 +182,22 @@ Os OSDs aparecem na lateral direita do monitor focado e desaparecem após um per
 | Mídia | Título e controles | Anterior, reproduzir/pausar e próxima |
 | Teclado | Caps Lock e Num Lock | Somente informativo |
 | Energia | Perfil ativo | Selecionar perfil disponível |
+
+#### Limites dos controles
+
+- O volume é limitado entre 0% e 100% nas ações iniciadas pelo Hydrogen.
+- Volume e microfone são alterados em passos de 5 pontos percentuais.
+- O brilho é alterado em passos de 5 pontos percentuais e limitado entre 1% e 100%, evitando apagar totalmente a iluminação da tela.
+- Alternar o mudo preserva o nível anterior para sua posterior restauração.
+- Valores externos fora desses intervalos podem ser normalizados na apresentação, mas não são sobrescritos apenas por terem sido observados.
+
+#### Mídia
+
+- O OSD controla prioritariamente um player que esteja reproduzindo. Se houver mais de um, prevalece o usado mais recentemente.
+- Ele aparece quando um player é iniciado, quando a reprodução é iniciada ou pausada e após uma ação de faixa anterior ou seguinte.
+- Uma troca automática de faixa não faz o OSD aparecer por si só.
+- O cartão exibe o título e somente os controles efetivamente oferecidos pelo player.
+- Controles indisponíveis são ocultados, e não apresentados como ações inoperantes.
 
 ### 6.5 Bandeja e indicadores permanentes
 
@@ -247,6 +272,21 @@ O Hydrogen atuará como servidor de notificações da sessão, implementando a e
 - As notificações continuam sendo recebidas, armazenadas no histórico e contabilizadas como não lidas.
 - O modo não perturbe controla somente a apresentação dos pop-ups e não descarta nem marca notificações como lidas.
 
+### 6.8 Atalhos globais e IPC
+
+O Sway permanece responsável pelo registro de atalhos globais. O Hydrogen expõe ações estáveis, com nomes em inglês, por meio do IPC oficial do Quickshell; não tenta registrar atalhos por protocolos específicos de outro compositor.
+
+- `Super + Space` é a combinação recomendada para alternar entre launcher aberto e fechado.
+- `Super + Escape` é a combinação recomendada para alternar entre menu de sessão aberto e fechado.
+- `Escape`, quando uma superfície temporária do Hydrogen possui foco, fecha essa superfície.
+- Central de notificações, modo não perturbe, rede e volume permanecem acessíveis pela barra e por ações IPC, mas não recebem combinações recomendadas no MVP.
+- O exemplo do projeto não declara teclas multimídia, de brilho ou volume.
+- O Hydrogen nunca modifica automaticamente a configuração existente do Sway.
+- O projeto fornece um arquivo de configuração pronto para uso com `include` e reproduz o mesmo trecho, com explicações, no README.
+- Launcher e menu de sessão são abertos no monitor focado, conforme as regras gerais de múltiplos monitores.
+
+Os nomes, argumentos e efeitos das ações IPC fazem parte da interface técnica do projeto e devem ser documentados e cobertos por testes. Mudanças incompatíveis nesses nomes exigem tratamento explícito de compatibilidade.
+
 ## 7. Aparência e interação
 
 - Barra contínua na parte inferior, ocupando toda a largura da saída.
@@ -307,6 +347,7 @@ Alterações válidas são recarregadas automaticamente. Quando houver ação po
 | Bandeja | API StatusNotifierItem e DBusMenu do Quickshell |
 | Rede | API de rede do Quickshell e backend compatível detectado em execução |
 | Bateria | UPower e integração correspondente do Quickshell |
+| Atalhos globais | `bindsym` do Sway acionando handlers IPC do Quickshell |
 
 Quando um recurso não estiver disponível no hardware ou no serviço ativo, seu controle será ocultado silenciosamente. A ausência de um recurso não utilizado não deve produzir uma interface repleta de estados de erro.
 
@@ -334,6 +375,7 @@ Quando um recurso não estiver disponível no hardware ou no serviço ativo, seu
 - Históricos permanecem locais, limitados e sem telemetria.
 - Ações destrutivas de sessão exigem confirmação explícita.
 - Recursos ausentes devem desaparecer sem deixar espaços vazios incoerentes.
+- OSDs automáticos não devem capturar foco nem interromper a entrada dirigida a outro aplicativo.
 
 ## 12. Critérios de aceitação do Hydrogen 0.1
 
@@ -362,6 +404,11 @@ Quando um recurso não estiver disponível no hardware ou no serviço ativo, seu
 23. Os modificadores `!` e `_`, isolados ou combinados, controlam respectivamente a persistência no histórico e a execução no terminal configurado.
 24. O histórico compartilhado aplica os limites de 100 itens e 30 dias, não registra comandos privados e pode ser limpo por uma ação interna.
 25. Consultas de arquivos obsoletas nunca substituem os resultados da consulta atual, mesmo quando processos `fd` terminam fora de ordem.
+26. Até três tipos de OSD formam uma pilha ordenada; o quarto remove o mais antigo, e eventos repetidos atualizam a instância existente.
+27. O temporizador dos OSDs pausa durante interação e recomeça em 3 segundos sem que uma aparição automática capture foco.
+28. Ações de volume, microfone e brilho respeitam os passos e limites definidos, sem sobrescrever automaticamente valores externos apenas por estarem fora desses limites.
+29. O OSD de mídia seleciona corretamente o player em reprodução mais recente e oculta controles não oferecidos por ele.
+30. Os exemplos para Sway alternam launcher com `Super + Space` e menu de sessão com `Super + Escape` usando ações IPC documentadas, sem modificar a configuração do usuário.
 
 ## 13. Marcos de desenvolvimento
 
@@ -374,10 +421,11 @@ Quando um recurso não estiver disponível no hardware ou no serviço ativo, seu
 | 5. Launcher completo | `fd`, cancelamento de consultas, abertura XDG, modo `>`, modificadores, ações internas e histórico |
 | 6. Painéis contextuais | Calendário, bateria, sessão, volume, rede e confirmações |
 | 7. Bandeja e indicadores | StatusNotifierItem, DBusMenu, overflow e indicadores permanentes |
-| 8. Infraestrutura de OSD | Posicionamento, tempo de permanência, atualização e interação compartilhada |
+| 8. Infraestrutura de OSD | Pilha, posicionamento, foco, temporizador, atualização e interação compartilhada |
 | 9. Provedores de OSD | Áudio, microfone, brilho, mídia, teclado e perfis de energia |
 | 10. Notificações | Servidor Freedesktop, pop-ups, ações, agrupamento, central, histórico e modo não perturbe |
-| 11. Polimento | Animações, multimonitor, teclado, tolerância a falhas, empacotamento e documentação |
+| 11. IPC e atalhos | Ações públicas, arquivo para `include`, exemplos e documentação do contrato IPC |
+| 12. Polimento | Animações, multimonitor, teclado, tolerância a falhas, empacotamento e documentação |
 
 Cada componente deve ser concluído e testável antes do início do seguinte, exceto quando uma dependência ou interseção técnica exigir desenvolvimento conjunto.
 
