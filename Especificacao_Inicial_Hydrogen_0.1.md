@@ -134,6 +134,10 @@ O launcher aparece como painel compacto e centralizado no monitor focado. Ele é
 - Cada resultado mostra ícone e nome do aplicativo.
 - A ativação inicia o aplicativo e fecha o launcher.
 - Localização, ações e execução de entradas desktop não devem depender de um parser improvisado ou de heurísticas apresentadas como comportamento garantido.
+- A descoberta, o nome, o ícone, o diretório de trabalho e o comando estruturado usam `DesktopEntries` do Quickshell.
+- Como `DesktopEntry.execute()` do Quickshell 0.3.1 ignora `Terminal=true` e códigos de campo, o Hydrogen envolve entradas de terminal com o terminal configurado e não promete conformidade integral com todos os códigos de campo no MVP.
+- Códigos que fornecem arquivos ou URLs podem ser omitidos porque o launcher inicia a aplicação sem fornecer esses argumentos. O conteúdo bruto de `Exec` nunca é entregue a um shell.
+- Uma entrada que não possa ser iniciada com segurança permanece pesquisável, mas sua falha produz aviso acionável e registro no log.
 
 #### Arquivos
 
@@ -141,7 +145,8 @@ O launcher aparece como painel compacto e centralizado no monitor focado. Ele é
 - Uma alteração na consulta cancela a pesquisa anterior ou invalida seus resultados antes que eles alcancem a interface.
 - Por padrão, são pesquisadas as pastas XDG existentes do usuário.
 - Pastas XDG inexistentes são ignoradas, e arquivos ou diretórios ocultos não são incluídos.
-- O arquivo selecionado é aberto pelo aplicativo padrão definido pelas associações XDG, e o launcher fecha após aceitar a solicitação.
+- O arquivo selecionado é convertido em uma URL `file://` corretamente escapada e entregue por `Qt.openUrlExternally()` ao manipulador padrão do sistema. O launcher fecha após aceitar a solicitação.
+- O Hydrogen não escolhe internamente o aplicativo associado ao arquivo nem concatena o caminho em uma linha de shell.
 
 #### Histórico
 
@@ -185,7 +190,28 @@ Quando houver bateria, o painel exibirá um indicador e permitirá consultar inf
 
 Reiniciar e desligar exigem confirmação.
 
-As ações do sistema deverão passar por uma pequena camada de integração, evitando que os componentes QML dependam diretamente de systemd ou de uma distribuição específica.
+Sair usa diretamente o comando `exit` do IPC do Sway e não depende de `swaymsg` quando a conexão interna puder enviá-lo. Para reiniciar e desligar, o Hydrogen seleciona uma integração disponível uma única vez durante a inicialização:
+
+1. comandos personalizados configurados pelo usuário;
+2. `systemctl poweroff` e `systemctl reboot` quando `systemctl` estiver disponível;
+3. `loginctl poweroff` e `loginctl reboot` somente quando o próprio `loginctl` anunciar esses verbos, como ocorre no elogind.
+
+Essa verificação é necessária porque o `loginctl` do elogind possui comandos de energia que não estão presentes em todas as versões fornecidas pelo systemd. A seleção não tenta novamente outro backend depois que uma ação falha.
+
+```toml
+[session]
+# Empty arrays enable automatic backend selection.
+poweroff_command = []
+reboot_command = []
+```
+
+- Os comandos são vetores de executável e argumentos e nunca são interpretados por um shell.
+- O usuário pode substituir os comandos em `components/integrations.toml` para adaptar o Hydrogen a outro init ou gerenciador de sessão.
+- O Hydrogen não tenta `sudo`, `doas`, operações forçadas nem uma sequência automática de backends alternativos.
+- Se nenhum backend compatível for detectado e não houver comando alternativo, reiniciar e desligar são ocultados; sair do Sway continua disponível.
+- Falhas mantêm a sessão e o menu utilizáveis, produzem aviso quando houver ação possível e registram os detalhes no log.
+
+O suporte geral é, portanto, Sway em qualquer distribuição que ofereça uma integração detectável ou comandos de energia configurados pelo usuário. Os componentes visuais dependem apenas da camada interna de sessão, e não diretamente de systemd ou de uma distribuição específica.
 
 ### 6.4 OSDs e controles contextuais
 
@@ -199,6 +225,21 @@ Os OSDs aparecem na lateral direita do monitor focado e representam alterações
 - Passagem do ponteiro, foco obtido por ação explícita ou manipulação de um controle pausa o temporizador. Ao terminar a interação, a contagem recomeça com 3 segundos completos.
 - Um OSD surgido automaticamente nunca solicita foco nem interrompe a janela ativa.
 - Um clique explícito pode conceder foco ao cartão para permitir interação.
+
+#### Observação e emissão de eventos
+
+Os provedores publicam alterações em um barramento interno normalizado. A interface do OSD consome esses eventos sem depender da origem da mudança.
+
+- Cada provedor aguarda seu backend ficar pronto, registra uma fotografia inicial e somente então começa a emitir eventos. Iniciar ou recarregar o Hydrogen não exibe OSDs com o estado inicial.
+- Uma ação do Hydrogen não cria antecipadamente um cartão. O provedor solicita a alteração e o observador publica apenas o valor efetivamente confirmado pelo backend.
+- Eventos repetidos do mesmo tipo recebidos em até 100 ms podem ser consolidados antes da apresentação; depois disso, novas alterações atualizam o cartão já existente.
+- Áudio e microfone são observados reativamente pela API PipeWire do Quickshell; mídia usa MPRIS; perfis de energia usam `PowerProfiles`.
+- Desconexão e reconexão de backend não produzem eventos falsos: o primeiro valor após a reconexão apenas restabelece a referência inicial.
+- Erros repetidos equivalentes são limitados nos logs.
+
+Para brilho, `brightnessctl` é usado para descobrir o dispositivo e aplicar alterações. A observação lê `brightness` e `max_brightness` da interface estável em `/sys/class/backlight` a cada 500 ms, sem iniciar processos periódicos. Quando houver mais de um dispositivo, `brightness_device` em `components/integrations.toml` permite escolher explicitamente um deles.
+
+O MVP suporta somente dispositivos expostos em `/sys/class/backlight`. Monitores controlados exclusivamente por DDC/CI não fazem parte do escopo, embora possam funcionar quando um driver os expuser como backlight do kernel.
 
 | OSD | Conteúdo | Interação |
 |---|---|---|
@@ -228,10 +269,13 @@ Os OSDs aparecem na lateral direita do monitor focado e representam alterações
 
 O MVP inclui uma bandeja compatível com StatusNotifierItem. Ela deve preservar, conforme fornecido por cada aplicativo, o ícone, a ativação primária e secundária, a rolagem e os menus DBus. A bandeja completa aparece em todas as barras.
 
+- Uma única instância lógica de `SystemTray` acompanha os itens e é compartilhada por todas as barras; não são criados watchers independentes por monitor.
 - Itens ativos e urgentes têm prioridade na área visível.
 - Quando não houver espaço, os itens excedentes são movidos para um menu expansível.
 - A ausência de itens não deixa um espaço vazio reservado na barra.
 - O suporte deve usar a API do Quickshell compatível com a versão adotada pelo projeto e ser verificado com aplicativos reais.
+- Um item malformado não pode derrubar toda a bandeja. Se ela não puder ser observada por conflito ou falha, somente esse componente é ocultado e o problema é registrado.
+- O MVP suporta StatusNotifierItem e DBusMenu, mas não a bandeja legada XEmbed.
 
 Além da bandeja, a região direita mantém indicadores próprios de volume, rede e bateria quando os respectivos recursos estiverem disponíveis.
 
@@ -266,6 +310,12 @@ Além da bandeja, a região direita mantém indicadores próprios de volume, red
 ### 6.7 Notificações
 
 O Hydrogen atuará como servidor de notificações da sessão, implementando a especificação Desktop Notifications do Freedesktop por meio da API de notificações do Quickshell. Não haverá dependência de um daemon externo como Mako, Dunst ou SwayNotificationCenter, e a documentação de instalação deverá informar que outro servidor de notificações não pode disputar essa responsabilidade na mesma sessão.
+
+O servidor anuncia suporte a corpo de texto, ações, imagem principal e persistência. Não anuncia markup, hyperlinks no corpo, imagens embutidas no texto, ícones de ações, resposta rápida nem extensões não implementadas. O corpo é sempre renderizado como texto simples, inclusive quando um cliente envia marcação sem que a capacidade tenha sido anunciada.
+
+- `keepOnReload` permanece ativo. Notificações recuperadas da geração anterior restauram o acompanhamento, mas não reaparecem como pop-up nem são duplicadas no histórico persistente.
+- Notificações marcadas como `transient` podem gerar pop-up, mas não entram no histórico.
+- Se outro processo já possuir `org.freedesktop.Notifications`, somente o componente de notificações é desativado. O Hydrogen apresenta uma vez um aviso acionável sobre o conflito e mantém o restante do shell funcional.
 
 #### Pop-ups
 
@@ -400,18 +450,21 @@ Como o Quickshell pode depender da compatibilidade binária com a versão de Qt 
 | Janelas, foco, saídas e workspaces | IPC do Sway |
 | Interface | Quickshell e Qt/QML |
 | Busca de arquivos | `fd` |
-| Áudio e microfone | `wpctl` |
-| Mídia | `playerctl` / MPRIS |
-| Brilho | `brightnessctl` |
-| Perfis de energia | `powerprofilesctl` |
-| Aplicativos e abertura de arquivos | Especificações e ferramentas XDG |
+| Áudio e microfone | API PipeWire do Quickshell |
+| Mídia | API MPRIS do Quickshell |
+| Brilho | `brightnessctl` para descoberta e controle; sysfs para observação |
+| Perfis de energia | API `PowerProfiles` do Quickshell e `power-profiles-daemon` |
+| Aplicativos e abertura de arquivos | `DesktopEntries`, Qt e especificações Freedesktop/XDG |
 | Notificações | API de notificações do Quickshell e especificação Desktop Notifications do Freedesktop |
 | Bandeja | API StatusNotifierItem e DBusMenu do Quickshell |
-| Rede | API de rede do Quickshell e backend compatível detectado em execução |
+| Rede | `Quickshell.Networking` com NetworkManager no MVP |
 | Bateria | UPower e integração correspondente do Quickshell |
+| Sessão | IPC do Sway para sair; `systemctl`, `loginctl` compatível ou comandos configurados para energia |
 | Atalhos globais | `bindsym` do Sway acionando handlers IPC do Quickshell |
 
-Quando um recurso não estiver disponível no hardware ou no serviço ativo, seu controle será ocultado silenciosamente. A ausência de um recurso não utilizado não deve produzir uma interface repleta de estados de erro.
+As únicas ferramentas externas obrigatórias do MVP são `fd` e `brightnessctl`. `wpctl`, `playerctl` e `powerprofilesctl` não são dependências nem fallbacks paralelos. PipeWire é requisito para áudio; UPower, `power-profiles-daemon` e NetworkManager são serviços opcionais para seus respectivos componentes.
+
+Quando um recurso não estiver disponível no hardware ou no serviço ativo, seu controle será ocultado silenciosamente. A ausência de um recurso não utilizado não deve produzir uma interface repleta de estados de erro. Cada integração fica atrás de uma interface interna para permitir evolução sem acoplar os componentes visuais ao backend.
 
 ## 10. Limites e não objetivos do MVP
 
@@ -421,6 +474,7 @@ Quando um recurso não estiver disponível no hardware ou no serviço ativo, seu
 - Não fornecer um editor visual completo para a barra.
 - Não implementar gerenciamento de wallpaper.
 - Não administrar monitores, Bluetooth ou dispositivos em geral.
+- Não controlar brilho de monitores exclusivamente por DDC/CI.
 - Não oferecer configuração avançada de rede, incluindo IP, DNS, VPN, hotspot ou edição completa de perfis.
 - Não substituir bloqueador de tela, login manager ou agente de autenticação.
 - Não criar indexador próprio de arquivos.
@@ -428,6 +482,7 @@ Quando um recurso não estiver disponível no hardware ou no serviço ativo, seu
 - Não gerar paleta dinâmica no MVP.
 - Não oferecer plugins ou módulos arbitrários no MVP.
 - Não oferecer suporte formal a outros compositores Wayland.
+- Não oferecer bandeja legada XEmbed.
 
 ## 11. Requisitos de robustez
 
@@ -476,6 +531,13 @@ Quando um recurso não estiver disponível no hardware ou no serviço ativo, seu
 32. Títulos iguais ou PIDs relacionados não bastam para agrupar janelas; uma janela não identificada continua acessível com ícone genérico e título.
 33. Regras exatas em `components/bar.toml` corrigem identidades, respeitam a ordem declarada e são reaplicadas após a recarga automática.
 34. Flatpaks, jogos da Steam, aplicações web, aplicativos Wayland e janelas XWayland são exercitados nos testes de identificação, incluindo casos sem entrada desktop válida.
+35. Alterações externas de volume, mudo, microfone e perfil de energia geram um único OSD com o valor confirmado, mas a sincronização inicial e a reconexão dos backends não geram cartões falsos.
+36. O brilho é observado sem processos periódicos, respeita o dispositivo configurado e desaparece quando nenhum backlight compatível estiver disponível.
+37. Sair usa o IPC do Sway; reiniciar e desligar usam comandos estruturados configuráveis, permanecem ocultos quando indisponíveis e nunca tentam elevação ou operações forçadas automaticamente.
+38. Um servidor de notificações concorrente desativa somente as notificações do Hydrogen e produz uma única orientação acionável; recarregar o shell não duplica pop-ups nem o histórico.
+39. O corpo de notificações é tratado como texto simples e somente capacidades realmente implementadas são anunciadas aos clientes.
+40. Todas as barras compartilham a mesma coleção lógica da bandeja, e um item inválido não interrompe os demais.
+41. Arquivos são entregues ao manipulador padrão como URLs escapadas, e comandos de entradas desktop nunca são executados como texto bruto por um shell.
 
 ## 13. Marcos de desenvolvimento
 
