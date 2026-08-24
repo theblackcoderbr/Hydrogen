@@ -45,24 +45,47 @@ O núcleo visual do Hydrogen é uma barra contínua na parte inferior da tela. E
 
 | Região | Conteúdo previsto | Responsabilidade |
 |---|---|---|
-| Esquerda | Ícone do launcher | Abrir o launcher e sinalizar o ponto de entrada do shell |
-| Centro / área expansível | Aplicativos e janelas abertas | Representar, focar e alternar as janelas gerenciadas pelo Sway |
+| Esquerda | Ícone do launcher e seletor de workspaces | Abrir o launcher e navegar pelos workspaces do monitor |
+| Centro / área expansível | Aplicativos e janelas abertas | Representar, focar, selecionar e fechar as janelas gerenciadas pelo Sway |
 | Direita | Indicadores essenciais, bateria, sessão e relógio | Exibir estado e abrir painéis contextuais pequenos |
 
 A barra não será um sistema genérico de painéis. No MVP, sua posição, estrutura principal e função são fixas. O arquivo de configuração poderá ajustar aparência e alguns comportamentos, mas não reconstruir livremente o layout.
 
 ### 5.2 Aplicativos abertos
 
-A área principal da barra representa as janelas abertas de modo tradicional. Cada item deverá identificar visualmente o aplicativo e permitir que o usuário encontre e foque uma janela sem depender exclusivamente de atalhos ou da representação dos workspaces.
+A área expansível da barra representa de modo tradicional os aplicativos abertos no workspace atualmente visível naquele monitor. A lista é alimentada pelo IPC do Sway e cada aplicativo ocupa um único item, exibido somente por seu ícone.
 
-- A lista é alimentada pelo IPC do Sway.
-- O item precisa indicar estado ativo, inativo e urgente quando essa informação estiver disponível.
-- A apresentação deve se adaptar ao espaço horizontal sem tornar a barra inutilizável.
-- Agrupamento de janelas do mesmo aplicativo e comportamento ao clicar no item já focado permanecem decisões abertas.
+- Janelas do mesmo aplicativo são agrupadas em um único item.
+- Quando o grupo possuir mais de uma janela, o item exibe um contador.
+- Um grupo com apenas uma janela transfere o foco para ela quando ativado.
+- Ativar o item da janela que já está focada não executa nenhuma ação. O Hydrogen não simula minimização por meio do scratchpad.
+- Ativar um grupo com várias janelas abre uma lista compacta acima da barra. Cada entrada mostra o ícone e o título da janela e permite focá-la ou fechá-la.
+- O fechamento não exige confirmação do Hydrogen; o aplicativo continua responsável por impedir ou confirmar o encerramento quando necessário.
+- A lista agrupada deve ser completamente operável por teclado e ponteiro.
+- O aplicativo que contém a janela focada recebe o estado visual ativo.
+- Uma janela urgente acrescenta um pequeno indicador ao item do aplicativo. Na lista agrupada, a janela responsável pela urgência também é identificada.
+- Os aplicativos mantêm a ordem em que apareceram no workspace. Mudanças de foco não reorganizam a barra, e um aplicativo fechado e reaberto retorna ao final da lista.
+- Quando não houver espaço horizontal, os itens excedentes são deslocados para um menu de overflow, preservando a operação normal de grupos e janelas.
+- A janela ativa deve permanecer visível na barra sempre que possível; para isso, um item inativo pode ser deslocado para o menu de overflow.
+- Janelas presentes no scratchpad não são representadas como minimizadas pelo Hydrogen.
+
+A identificação confiável de grupos, a associação entre janelas e arquivos `.desktop` e os fallbacks para ícones ausentes deverão ser determinados por pesquisa e testes com aplicativos Wayland e XWayland. Esses mecanismos não devem depender de heurísticas não documentadas apresentadas como garantias.
 
 ### 5.3 Workspaces
 
-Workspaces continuam sendo uma capacidade do Sway, mas não definem a identidade visual do Hydrogen. A presença de um seletor de workspaces no painel, sua posição e sua forma de apresentação serão decididas após o modelo de aplicativos abertos estar validado.
+O seletor de workspaces aparece entre o launcher e a área de aplicativos. Workspaces continuam sendo administrados pelo Sway; o Hydrogen apenas representa seu estado e aciona operações por meio do IPC.
+
+- Cada barra representa os workspaces que estão efetivamente em seu monitor, ainda que a configuração normalmente associe cada workspace a uma saída específica.
+- O estado real informado pelo Sway prevalece sobre a associação configurada. Se um workspace aparecer em outra saída, ele é mostrado na barra dessa saída.
+- São exibidos o workspace atual, mesmo vazio, e os demais workspaces que contenham janelas. Workspaces vazios e inativos permanecem ocultos.
+- Cada item exibe somente o número do workspace, e os itens são ordenados numericamente.
+- O MVP pressupõe workspaces com identificação numérica determinável. Nomes adicionais podem ser ignorados visualmente, desde que o número possa ser obtido de forma segura.
+- Clique esquerdo troca para o workspace selecionado.
+- Clique do meio move a janela focada para o workspace selecionado sem acompanhar a janela. No workspace atual, essa ação não produz efeito.
+- A roda do mouse percorre somente os workspaces visíveis naquela barra, seguindo a ordem numérica e continuando pelo extremo oposto após o primeiro ou o último item.
+- O workspace atual recebe o destaque principal; workspaces ocupados e inativos usam o estado visual normal.
+- Um workspace contendo uma janela urgente recebe uma cor de destaque no item inteiro. Quando ele também for o atual, o estilo preserva simultaneamente as indicações de seleção e urgência.
+- Workspaces vazios e ocultos continuam acessíveis pelos atalhos configurados diretamente no Sway.
 
 ## 6. Componentes do MVP
 
@@ -219,7 +242,7 @@ Quando um recurso não estiver disponível no hardware ou no serviço ativo, seu
 1. O Hydrogen inicia com uma configuração padrão utilizável em uma sessão Sway.
 2. Uma barra inferior completa é criada em cada saída ativa.
 3. O botão do launcher abre o painel no monitor focado.
-4. Aplicativos abertos são representados na barra e podem ser focados por ela.
+4. Aplicativos do workspace visível são agrupados na barra, podem ser focados ou selecionados pela lista de janelas e mantêm ordem estável.
 5. Aplicativos podem ser encontrados e iniciados pelo launcher.
 6. Arquivos podem ser encontrados com `fd` e abertos pelo aplicativo XDG padrão.
 7. O modo `>` executa comandos com argumentos e ações internas predefinidas.
@@ -230,6 +253,9 @@ Quando um recurso não estiver disponível no hardware ou no serviço ativo, seu
 12. Notificações de teste aparecem no monitor focado, respeitam urgência, agrupamento, ações e pausa do temporizador.
 13. A central mantém e ordena o histórico, marca somente itens visualizados como lidos e aplica os limites de 50 itens e 7 dias.
 14. O modo não perturbe suprime todos os pop-ups sem impedir o armazenamento e a contagem das notificações.
+15. O menu de overflow preserva acesso aos aplicativos excedentes e mantém o aplicativo ativo visível sempre que possível.
+16. Cada barra mostra o workspace atual e os ocupados de sua saída real, em ordem numérica, e permite trocar de workspace com clique ou roda.
+17. O clique do meio em um workspace move a janela focada sem mudar para o destino, e estados de urgência são distinguíveis do estado ativo.
 
 ## 13. Marcos de desenvolvimento
 
@@ -237,7 +263,7 @@ Quando um recurso não estiver disponível no hardware ou no serviço ativo, seu
 |---|---|
 | 1. Fundação | Estrutura do Quickshell, configuração, logs, ciclo de vida e conexão com o IPC do Sway |
 | 2. Painel básico | Barra inferior por saída, launcher, relógio e estrutura responsiva |
-| 3. Aplicativos abertos | Descoberta das janelas, estados, foco e comportamento inicial dos itens da barra |
+| 3. Navegação de janelas | Descoberta e agrupamento das janelas, foco, lista de seleção, overflow e seletor de workspaces |
 | 4. Launcher de aplicativos | Entradas desktop, pesquisa, teclado e itens mais usados |
 | 5. Launcher completo | `fd`, abertura XDG, modo `>`, ações internas e histórico |
 | 6. Painéis contextuais | Calendário, bateria, sessão e confirmações |
@@ -252,10 +278,6 @@ Cada componente deve ser concluído e testável antes do início do seguinte, ex
 
 Estas decisões não devem ser fechadas por conveniência durante a implementação; cada uma altera de forma perceptível a experiência do painel tradicional.
 
-- Aplicativos abertos serão agrupados por aplicativo ou representados por janela?
-- O clique no item da janela já focada terá alguma ação, como ocultar ou alternar?
-- Como várias janelas agrupadas serão escolhidas?
-- Workspaces terão representação permanente no painel?
 - A bandeja do sistema pertence ao MVP ou a uma versão posterior?
 - Quais indicadores, além de bateria, sessão e relógio, são realmente essenciais?
 - Qual formato concreto será usado pelo arquivo de configuração?
