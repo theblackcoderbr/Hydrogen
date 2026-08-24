@@ -69,7 +69,33 @@ A área expansível da barra representa de modo tradicional os aplicativos abert
 - A janela ativa deve permanecer visível na barra sempre que possível; para isso, um item inativo pode ser deslocado para o menu de overflow.
 - Janelas presentes no scratchpad não são representadas como minimizadas pelo Hydrogen.
 
-A identificação confiável de grupos, a associação entre janelas e arquivos `.desktop` e os fallbacks para ícones ausentes deverão ser determinados por pesquisa e testes com aplicativos Wayland e XWayland. Esses mecanismos não devem depender de heurísticas não documentadas apresentadas como garantias.
+#### 5.2.1 Identificação e agrupamento
+
+Cada janela continua sendo uma entidade distinta, identificada internamente pelo contêiner informado pelo Sway. O agrupamento visual ocorre somente quando o Hydrogen consegue associar as janelas a uma mesma identidade de aplicativo com confiança suficiente.
+
+A identificação deve usar os dados documentados pelo IPC do Sway e as entradas Freedesktop indexadas pelo Quickshell. A resolução segue esta ordem, interrompendo-se na primeira correspondência confiável:
+
+1. regra manual configurada pelo usuário;
+2. `sandbox_app_id`, quando informado pelo Sway, comparado a uma entrada desktop;
+3. `app_id` de aplicações Wayland, comparado exatamente ao identificador de uma entrada desktop;
+4. `StartupWMClass` da entrada desktop, comparado ao identificador fornecido pela janela;
+5. `class` e depois `instance` de `WM_CLASS` para janelas XWayland;
+6. identificador bruto estável da janela como fallback não resolvido.
+
+- O identificador de uma entrada desktop é usado sem a extensão `.desktop` na configuração do Hydrogen.
+- Janelas somente são agrupadas automaticamente quando a resolução for confiável. Em caso de dúvida, o Hydrogen cria itens separados em vez de unir aplicações diferentes.
+- Uma heurística, incluindo `DesktopEntries.heuristicLookup()`, pode sugerir nome ou ícone em baixa confiança, mas não basta por si só para agrupar janelas.
+- Título e PID nunca são chaves de agrupamento. O título muda conforme o documento ou conteúdo, enquanto aplicativos multiprocesso tornam o PID inadequado para representar sua identidade.
+- Quando o Sway fornecer uma relação explícita entre um diálogo e sua janela, o diálogo integra o grupo da janela principal.
+- Uma janela não identificada permanece visível com ícone genérico e título. Ela não pode ser ocultada por regra no MVP.
+- Recarregar a configuração reavalia as identidades e os grupos. Remover uma correção faz as janelas afetadas retornarem à identificação automática.
+
+Casos especiais seguem estas regras:
+
+- `sandbox_app_id` é a identidade preferencial para aplicações Flatpak. Empacotamentos que exponham identificadores incorretos podem ser corrigidos manualmente.
+- Cada jogo iniciado pela Steam aparece como aplicativo independente quando possuir identidade própria. As janelas da Steam permanecem no grupo da própria Steam.
+- Uma aplicação web instalada aparece separadamente quando possuir `app_id` ou entrada desktop própria; sem identidade própria, ela integra o grupo do navegador.
+- Programas portáteis, AppImages e aplicações locais sem entrada desktop podem receber nome e ícone por configuração.
 
 ### 5.3 Workspaces
 
@@ -330,6 +356,39 @@ hydrogen/
 
 Alterações válidas são recarregadas automaticamente. Quando houver ação possível, o usuário recebe um aviso objetivo; os detalhes e a origem do arquivo ficam registrados nos logs.
 
+### 8.1 Correções de identidade de aplicativos
+
+Regras manuais de identificação ficam em `components/bar.toml`, são avaliadas na ordem declarada e usam somente correspondência exata no MVP. A primeira regra correspondente vence.
+
+```toml
+[[app_matching.rules]]
+app_id = "example-app"
+wm_class = "ExampleApp"
+desktop_entry = "org.example.Application"
+
+[[app_matching.rules]]
+app_id = "portable-program"
+name = "Programa portátil"
+icon = "application-x-executable"
+```
+
+Campos de correspondência aceitos inicialmente:
+
+- `sandbox_app_id`;
+- `app_id`;
+- `wm_class`;
+- `wm_instance`.
+
+Campos de identidade aceitos:
+
+- `desktop_entry`, contendo o identificador sem `.desktop`;
+- `name`, como nome explícito ou fallback;
+- `icon`, como nome de ícone compatível com o tema ou caminho admitido pela implementação.
+
+Uma regra deve possuir ao menos um campo de correspondência. Quando houver vários campos na mesma regra, todos precisam corresponder; alternativas são expressas por regras separadas. Expressões regulares não pertencem ao MVP.
+
+Uma regra pode apontar para uma entrada desktop ou fornecer `name` e `icon` para um programa sem entrada própria. Regras inválidas são ignoradas com aviso no log, sem invalidar as demais regras válidas do componente. Nenhuma regra pode ocultar uma janela.
+
 ## 9. Integrações e dependências
 
 A versão mínima e normativa do Quickshell para o Hydrogen 0.1 é a **0.3.1**. Implementação e revisão devem consultar a documentação oficial versionada dessa release. `master`, `quickshell-git` e exemplos escritos para outras versões não são fontes normativas. Versões posteriores somente podem ser declaradas compatíveis após validação explícita.
@@ -413,6 +472,10 @@ Quando um recurso não estiver disponível no hardware ou no serviço ativo, seu
 28. Ações de volume, microfone e brilho respeitam os passos e limites definidos, sem sobrescrever automaticamente valores externos apenas por estarem fora desses limites.
 29. O OSD de mídia seleciona corretamente o player em reprodução mais recente e oculta controles não oferecidos por ele.
 30. Os exemplos para Sway alternam launcher com `Super + Space` e menu de sessão com `Super + Escape` usando ações IPC documentadas, sem modificar a configuração do usuário.
+31. Duas janelas com a mesma identidade resolvida de modo confiável formam um único grupo, enquanto uma correspondência apenas heurística não provoca agrupamento.
+32. Títulos iguais ou PIDs relacionados não bastam para agrupar janelas; uma janela não identificada continua acessível com ícone genérico e título.
+33. Regras exatas em `components/bar.toml` corrigem identidades, respeitam a ordem declarada e são reaplicadas após a recarga automática.
+34. Flatpaks, jogos da Steam, aplicações web, aplicativos Wayland e janelas XWayland são exercitados nos testes de identificação, incluindo casos sem entrada desktop válida.
 
 ## 13. Marcos de desenvolvimento
 
