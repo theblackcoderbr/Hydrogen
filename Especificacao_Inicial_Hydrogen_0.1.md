@@ -115,6 +115,40 @@ Os OSDs aparecem na lateral direita do monitor focado e desaparecem após um per
 - OSDs aparecem somente no monitor focado.
 - A desconexão de uma saída não pode interromper o shell.
 
+### 6.6 Notificações
+
+O Hydrogen atuará como servidor de notificações da sessão, implementando a especificação Desktop Notifications do Freedesktop por meio da API de notificações do Quickshell. Não haverá dependência de um daemon externo como Mako, Dunst ou SwayNotificationCenter, e a documentação de instalação deverá informar que outro servidor de notificações não pode disputar essa responsabilidade na mesma sessão.
+
+#### Pop-ups
+
+- Os pop-ups aparecem no canto inferior direito do monitor focado no momento do recebimento, imediatamente acima da barra.
+- Notificações do mesmo aplicativo são agrupadas. O pop-up do grupo exibe a notificação mais recente e a quantidade de notificações contidas nele.
+- Notificações de urgência baixa permanecem visíveis por 3 segundos.
+- Notificações de urgência normal permanecem visíveis por 6 segundos.
+- Notificações críticas permanecem visíveis até serem descartadas ou até que uma de suas ações seja executada.
+- Foco por teclado, passagem do ponteiro ou outra interação com o pop-up pausa seu temporizador. A contagem é retomada quando a interação termina.
+- Clicar no corpo executa a ação padrão fornecida pelo aplicativo, quando ela existir.
+- As demais ações fornecidas pelo aplicativo são apresentadas como controles acessíveis por teclado e ponteiro.
+- Cada notificação pode ser descartada individualmente.
+
+#### Central e histórico
+
+- Um indicador na região direita da barra exibe a quantidade de notificações não lidas.
+- A ativação do indicador abre uma central de notificações em um painel ancorado acima dele.
+- O histórico mantém no máximo 50 notificações e somente notificações recebidas nos últimos 7 dias. A limpeza automática aplica os dois limites.
+- As notificações são agrupadas por aplicativo na central.
+- Grupos com itens não lidos aparecem antes dos grupos totalmente lidos; dentro de cada categoria, prevalece a atividade mais recente.
+- Uma notificação é marcada como lida quando seu item se torna visível na área exibida da central. Apenas abrir a central não marca automaticamente itens ainda não visualizados.
+- A central permite descartar itens individuais e limpar todo o histórico.
+- O histórico permanece local e não realiza sincronização ou telemetria.
+
+#### Modo não perturbe
+
+- A central permite ativar e desativar o modo não perturbe.
+- Enquanto ele estiver ativo, nenhum pop-up será exibido, inclusive para notificações críticas.
+- As notificações continuam sendo recebidas, armazenadas no histórico e contabilizadas como não lidas.
+- O modo não perturbe controla somente a apresentação dos pop-ups e não descarta nem marca notificações como lidas.
+
 ## 7. Aparência e interação
 
 - Barra contínua na parte inferior, ocupando toda a largura da saída.
@@ -136,6 +170,7 @@ O Hydrogen terá um arquivo de configuração simples e em português. A intenç
 | Launcher | Diretórios de busca, limite de resultados e tempo de espera da pesquisa |
 | Integrações | Comandos para sair, reiniciar e desligar |
 | OSDs | Duração e disponibilidade dos provedores |
+| Notificações | Tempos de exibição, limites do histórico e comportamento do modo não perturbe |
 
 Alterações válidas devem ser recarregadas automaticamente. Uma configuração inválida não substitui a última configuração válida; quando houver ação possível, o usuário recebe um aviso objetivo e os detalhes ficam registrados nos logs.
 
@@ -151,6 +186,7 @@ Alterações válidas devem ser recarregadas automaticamente. Uma configuração
 | Brilho | `brightnessctl` |
 | Perfis de energia | `powerprofilesctl` |
 | Aplicativos e abertura de arquivos | Especificações e ferramentas XDG |
+| Notificações | API de notificações do Quickshell e especificação Desktop Notifications do Freedesktop |
 
 Quando um recurso não estiver disponível no hardware ou no serviço ativo, seu controle será ocultado silenciosamente. A ausência de um recurso não utilizado não deve produzir uma interface repleta de estados de erro.
 
@@ -191,6 +227,9 @@ Quando um recurso não estiver disponível no hardware ou no serviço ativo, seu
 9. Os OSDs definidos respondem aos respectivos eventos e controles.
 10. A configuração é recarregada sem reinício e erros preservam o último estado válido.
 11. Todos os componentes interativos essenciais podem ser operados por teclado.
+12. Notificações de teste aparecem no monitor focado, respeitam urgência, agrupamento, ações e pausa do temporizador.
+13. A central mantém e ordena o histórico, marca somente itens visualizados como lidos e aplica os limites de 50 itens e 7 dias.
+14. O modo não perturbe suprime todos os pop-ups sem impedir o armazenamento e a contagem das notificações.
 
 ## 13. Marcos de desenvolvimento
 
@@ -204,7 +243,8 @@ Quando um recurso não estiver disponível no hardware ou no serviço ativo, seu
 | 6. Painéis contextuais | Calendário, bateria, sessão e confirmações |
 | 7. Infraestrutura de OSD | Posicionamento, tempo de permanência, atualização e interação compartilhada |
 | 8. Provedores de OSD | Áudio, microfone, brilho, mídia, teclado e perfis de energia |
-| 9. Polimento | Animações, multimonitor, teclado, tolerância a falhas, empacotamento e documentação |
+| 9. Notificações | Servidor Freedesktop, pop-ups, ações, agrupamento, central, histórico e modo não perturbe |
+| 10. Polimento | Animações, multimonitor, teclado, tolerância a falhas, empacotamento e documentação |
 
 Cada componente deve ser concluído e testável antes do início do seguinte, exceto quando uma dependência ou interseção técnica exigir desenvolvimento conjunto.
 
@@ -217,7 +257,6 @@ Estas decisões não devem ser fechadas por conveniência durante a implementaç
 - Como várias janelas agrupadas serão escolhidas?
 - Workspaces terão representação permanente no painel?
 - A bandeja do sistema pertence ao MVP ou a uma versão posterior?
-- Notificações serão apenas integradas a um daemon externo ou ficarão totalmente fora do Hydrogen?
 - Quais indicadores, além de bateria, sessão e relógio, são realmente essenciais?
 - Qual formato concreto será usado pelo arquivo de configuração?
 - Como detectar Caps Lock e Num Lock de forma portátil em sessões Sway?
