@@ -288,11 +288,22 @@ Além da bandeja, a região direita mantém indicadores próprios de volume, red
 
 #### Rede
 
-- O indicador representa o estado da conexão atual.
-- Sua ativação abre um painel simples de conexões.
-- O painel permite ligar ou desligar o Wi-Fi, conectar e desconectar redes e informar a senha necessária para uma conexão Wi-Fi.
-- Edição de IP, DNS, VPN, hotspot e perfis avançados não pertence ao MVP.
-- Quando não houver backend de rede compatível, indicador e painel são ocultados silenciosamente.
+- O MVP usa somente NetworkManager por meio de `Quickshell.Networking`. A detecção consulta o backend da API e não procura `nmcli`; o Hydrogen não inicia, reinicia nem configura o serviço.
+- Quando não houver backend compatível, indicador e painel são ocultados silenciosamente.
+- O indicador representa, em ordem de prioridade visual: conexão cabeada ativa, Wi-Fi conectado, Wi-Fi disponível porém desconectado e ausência de conexão. Conectividade limitada, portal cativo, Wi-Fi desativado e bloqueio físico recebem estados próprios quando informados pelo backend.
+- A prioridade visual não afirma qual interface contém a rota padrão. Se Ethernet e Wi-Fi estiverem conectados, o indicador mostra Ethernet e o painel apresenta ambas.
+- Todos os adaptadores cabeados e Wi-Fi são mostrados. Nomes técnicos ficam ocultos quando houver somente um dispositivo de cada tipo; com vários adaptadores equivalentes, as redes são agrupadas por dispositivo.
+- A varredura Wi-Fi permanece ativa somente enquanto o painel estiver aberto. Mudanças na lista preservam seleção e foco quando possível; abrir o painel já inicia a atualização, sem botão separado.
+- Redes aparecem na ordem: conectada, conhecidas, desconhecidas; dentro de cada grupo, sinal decrescente e nome como desempate.
+- Cada item Wi-Fi mostra SSID, sinal, estado, segurança e indicação de perfil conhecido. SSIDs vazios ou redes ocultas não podem ser configurados no MVP.
+- O fluxo tenta `connect()` primeiro. Somente uma falha `NoSecrets` em WPA/WPA2-Personal ou SAE abre o pedido de senha e usa `connectWithPsk()`.
+- A senha existe somente em memória durante a tentativa, nunca entra em logs ou arquivos e é limpa após falha. O NetworkManager decide se a credencial será armazenada.
+- Redes abertas conectam sem senha. Perfis já configurados externamente podem ser usados quando a API permitir; novas redes empresariais, WEP, OWE ou incomuns exigem configuração externa.
+- O painel permite ativar ou desativar Wi-Fi, conectar e desconectar redes. Não permite esquecer perfis, alterar `autoconnect`, editar IP, DNS, VPN, hotspot ou configurações avançadas.
+- Bloqueio físico é exibido como estado indisponível e não pode ser contornado. Ethernet pode ser desconectada quando o backend oferecer a ação, sem desativação permanente do dispositivo.
+- Portal cativo ou acesso limitado podem ser informados, mas o Hydrogen não incorpora navegador nem adivinha URL de autenticação. Reabrir o painel após autenticação solicita nova verificação quando suportada.
+- Uma tentativa em andamento bloqueia somente seu item. Erros são apresentados resumidamente em português, detalhes ficam no log, e remover um dispositivo ou rede cancela somente a interação correspondente.
+- Alterações externas feitas pelo NetworkManager ou outra ferramenta atualizam o painel reativamente.
 
 #### Bateria
 
@@ -439,6 +450,51 @@ Uma regra deve possuir ao menos um campo de correspondência. Quando houver vár
 
 Uma regra pode apontar para uma entrada desktop ou fornecer `name` e `icon` para um programa sem entrada própria. Regras inválidas são ignoradas com aviso no log, sem invalidar as demais regras válidas do componente. Nenhuma regra pode ocultar uma janela.
 
+### 8.2 Estado e históricos persistentes
+
+Históricos usam JSON e ficam em `$XDG_STATE_HOME/hydrogen/`, com fallback para `~/.local/state/hydrogen/`:
+
+```text
+hydrogen/
+├── launcher-history.json
+├── notification-history.json
+└── state.json
+```
+
+O diretório usa permissão `0700` e os arquivos `0600`. O caminho é estável, não depende do identificador interno do shell e nunca é substituído por `/tmp` em caso de falha.
+
+Cada arquivo contém `schema_version`, `updated_at` em ISO 8601 UTC e seus dados. Campos desconhecidos são ignorados, versões antigas exigem migração explícita e uma versão futura desconhecida suspende a persistência daquele arquivo sem sobrescrevê-lo.
+
+#### Histórico do launcher
+
+- Aplicativos armazenam `desktop_entry`, `use_count` e `last_used_at`.
+- Arquivos armazenam caminho absoluto normalizado, contador e data; links simbólicos não precisam ser resolvidos.
+- Comandos armazenam a linha sem o prefixo `>`, a indicação de terminal, contador e data.
+- Repetir um item atualiza seu registro. Comandos privados não criam nem alteram registros.
+- O limite compartilhado continua sendo 100 itens ou 30 dias. Entradas desktop removidas e arquivos inexistentes deixam de aparecer e são eliminados na limpeza seguinte.
+- Limpar o histórico remove todos os registros e solicita gravação imediata.
+
+#### Histórico de notificações
+
+São persistidos identificador interno, aplicativo, `desktop_entry`, resumo, corpo em texto simples, nome do ícone, urgência, data, estado de leitura, agrupamento e indicação de restauração. Não são persistidos objetos DBus, ações executáveis, resposta rápida, imagens binárias ou temporárias, hints desconhecidos nem credenciais.
+
+- Uma notificação restaurada mantém conteúdo e estado de leitura, pode ser descartada, não reaparece como pop-up e não oferece ações antigas.
+- Durante a vida do processo, inclusive em recarga QML, ações continuam disponíveis enquanto o objeto acompanhado pelo Quickshell for válido.
+- Ícones por nome e caminhos persistentes ainda existentes podem ser restaurados; o Hydrogen não cria cache próprio de anexos no MVP.
+- Os limites continuam sendo 50 notificações ou 7 dias.
+
+#### Estado geral e gravação
+
+`state.json` armazena inicialmente o modo não perturbe. Painéis abertos, foco e posição de rolagem não sobrevivem ao encerramento completo.
+
+- `FileView.atomicWrites` permanece ativo e as gravações são assíncronas.
+- Alterações próximas são consolidadas por 250 ms; limpeza manual grava imediatamente.
+- Antes de sair, reiniciar ou desligar, o Hydrogen aguarda uma gravação pendente por até 2 segundos.
+- Apenas o singleton de estado escreve os arquivos, que não são configuração editável nem observados durante a execução.
+- Limpeza ocorre ao carregar, modificar, antes de gravar e ao reabrir a superfície após longo período: remove expirados e referências inválidas verificáveis, ordena e aplica o limite.
+- JSON inválido é renomeado para `nome.corrupt-<timestamp>.json`; um arquivo vazio é criado atomicamente, o usuário recebe um aviso acionável e no máximo três cópias corrompidas são mantidas.
+- Falha de escrita preserva o estado em memória, limita mensagens repetidas no log e avisa somente quando houver ação possível, como corrigir permissões ou liberar espaço.
+
 ## 9. Integrações e dependências
 
 A versão mínima e normativa do Quickshell para o Hydrogen 0.1 é a **0.3.1**. Implementação e revisão devem consultar a documentação oficial versionada dessa release. `master`, `quickshell-git` e exemplos escritos para outras versões não são fontes normativas. Versões posteriores somente podem ser declaradas compatíveis após validação explícita.
@@ -538,6 +594,13 @@ Quando um recurso não estiver disponível no hardware ou no serviço ativo, seu
 39. O corpo de notificações é tratado como texto simples e somente capacidades realmente implementadas são anunciadas aos clientes.
 40. Todas as barras compartilham a mesma coleção lógica da bandeja, e um item inválido não interrompe os demais.
 41. Arquivos são entregues ao manipulador padrão como URLs escapadas, e comandos de entradas desktop nunca são executados como texto bruto por um shell.
+42. Com NetworkManager disponível, o painel representa todos os dispositivos, atualiza redes durante sua abertura e preserva a interação quando a lista mudar.
+43. Redes conhecidas conectam sem solicitar novamente credenciais válidas; redes pessoais desconhecidas pedem senha somente após `NoSecrets`, sem persistir ou registrar seu conteúdo.
+44. NetworkManager ausente oculta toda a integração, bloqueio físico permanece incontornável e uma falha de conexão afeta somente o item envolvido.
+45. Os três arquivos de estado usam esquema versionado, permissões restritas e gravações atômicas, sem bloquear a interface durante operações normais.
+46. Histórico do launcher e de notificações sobrevivem ao reinício, aplicam simultaneamente seus limites de idade e quantidade e não recriam entradas privadas ou inválidas.
+47. Notificações restauradas não reaparecem como pop-up nem oferecem ações DBus obsoletas; o modo não perturbe conserva seu estado após reiniciar.
+48. Arquivo corrompido é isolado sem derrubar o shell, versão futura desconhecida não é sobrescrita e falha de gravação preserva o estado em memória.
 
 ## 13. Marcos de desenvolvimento
 
@@ -560,7 +623,20 @@ Cada componente deve ser concluído e testável antes do início do seguinte, ex
 
 ## 14. Decisões ainda abertas
 
-Nenhuma decisão funcional conhecida permanece aberta para o escopo atual. Novas decisões não devem ser fechadas por conveniência durante a implementação. Questões de viabilidade e escolha de backend devem ser tratadas como pesquisa técnica, sem reintroduzir recursos declarados como não objetivos.
+Os tópicos abaixo foram deliberadamente adiados e não devem ser fechados por conveniência durante a implementação:
+
+1. contrato completo do IPC público;
+2. arquitetura interna e separação dos componentes;
+3. estratégia de logs e diagnóstico;
+4. estratégia de testes;
+5. empacotamento e instalação;
+6. ciclo de inicialização, recarga e encerramento;
+7. acessibilidade além da navegação por teclado;
+8. documentação de configuração e migração entre versões;
+9. critérios para considerar cada marco concluído;
+10. matriz de compatibilidade e testes com aplicativos reais.
+
+Novas decisões não devem ser fechadas por conveniência durante a implementação. Questões de viabilidade devem ser tratadas como pesquisa técnica, sem reintroduzir recursos declarados como não objetivos.
 
 > **Definição e regra de escopo:** o Hydrogen é a camada visual cotidiana entre o Sway e o usuário de desktop tradicional: painel inferior, acesso a aplicativos, representação das janelas abertas, indicadores essenciais, launcher e controles contextuais. Uma nova função só deve entrar quando fizer parte dessa interação cotidiana; ser tecnicamente possível ou visualmente interessante não é justificativa suficiente.
 
