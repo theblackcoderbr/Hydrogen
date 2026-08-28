@@ -606,7 +606,71 @@ Somente falha do núcleo QML, ausência de sessão Sway utilizável, impossibili
 
 Cada componente segue: contrato e modelo, provider falso, store, controlador, interface, provider real, testes de integração e documentação. Ele só está apto a liberar o próximo quando funciona com provider falso e backend real aplicável, cobre estados vazio, carregando, indisponível e erro, opera por teclado, respeita fronteiras, possui testes principais e não deixa erros recorrentes no log. Desenvolvimento conjunto ocorre apenas diante de dependência ou interseção técnica inseparável.
 
-## 11. Limites e não objetivos do MVP
+## 11. Logs e diagnóstico
+
+O Hydrogen usa o mecanismo normal de logging do Qt/Quickshell, consultável por `qs log`, e não mantém um arquivo `hydrogen.log`, escreve em `/var/log` ou depende de journald. Não há telemetria, crash reporter ou envio automático. Três canais permanecem distintos: log técnico; `ErrorRegistry` em memória, que alimenta diagnóstico e estado; e avisos visuais, mostrados somente quando o usuário tentou usar o recurso, existe impacto relevante ou há ação possível.
+
+### 11.1 Níveis, categorias e eventos
+
+Os níveis são `debug`, `info`, `warning`, `error` e `fatal`. `debug` é opt-in; `info` registra marcos do ciclo de vida, não cada ação cotidiana; ausência esperada de recurso opcional não é warning; `fatal` limita-se ao núcleo QML, padrões internos, sessão Sway ou superfícies essenciais. Providers opcionais nunca elevam sua própria falha a fatal.
+
+Categorias estáveis usam o prefixo `hydrogen.`: `lifecycle`, `config`, `persistence`, `ipc`, `sway`, `desktop`, `bar`, `launcher`, `notifications`, `tray`, `osd`, `audio`, `media`, `brightness`, `network`, `power`, `session` e `ui`. Cada evento tem uma categoria, código estável em inglês e `snake_case`, mensagem breve, operação e estado quando aplicáveis, campos técnicos permitidos e identificador de correlação local para ações assíncronas. Timestamps e instância ficam a cargo do Quickshell. Componentes visuais não duplicam erros do provider.
+
+São registrados: fases de inicialização e encerramento, versões, configuração aceita ou rejeitada, backend selecionado, mudanças de disponibilidade, falhas, timeouts, processos externos malsucedidos, corrupção ou incompatibilidade de estado, conflitos D-Bus, reconexões e superfícies inesperadamente perdidas. Mudanças normais de volume, brilho, sinal, foco ou workspace não geram log por valor.
+
+Nunca são registrados senhas, conteúdo ou ações de notificações, consultas, comandos ou histórico do launcher, títulos de janelas, SSIDs por padrão, MACs, caminhos pessoais completos, valores sensíveis de TOML, ambiente completo, saída bruta, argumentos arbitrários ou credenciais. Caminhos indispensáveis sob a home viram `$HOME/...`; erros de configuração mostram arquivo e chave, não o valor; processos registram operação lógica, executável esperado, duração e código de saída. `stderr` só pode aparecer sanitizado e truncado em debug; conteúdo sensível continua proibido nesse nível.
+
+### 11.2 Deduplicação, erros e avisos
+
+A impressão digital combina categoria, código, recurso e operação. A primeira ocorrência é emitida; repetições ficam suprimidas por 30 segundos; persistência produz resumo, no máximo, a cada cinco minutos; recuperação gera uma mensagem e reinicia o ciclo. O `ErrorRegistry` mantém até 50 registros com código, categoria, gravidade, datas, contagem, componente, ação, mensagem, recuperação e descarte. Ele não é persistido. Um aviso dispensado não retorna enquanto a mesma condição durar, mas pode voltar depois de recuperação e nova falha.
+
+Ausência de bateria, player, backlight, NetworkManager ou bandeja é silenciosa. Conflito do servidor de notificações, configuração inválida, corrupção, falha de gravação, erro de conexão solicitado, comando de sessão ausente ou entrada desktop inexequível podem produzir aviso curto em português, ação segura de uma lista interna, descarte e detalhe técnico resumido. Erros externos nunca fornecem comandos arbitrários à interface.
+
+### 11.3 Diagnóstico público
+
+O IPC v1 recebe a adição compatível `diagnostics`. Ela retorna versões, uptime, ciclo de vida, quantidade e características básicas das saídas, validade da configuração, estados de providers, capacidades, saúde da persistência, contagens sem conteúdo, erros recentes sanitizados e total de repetições suprimidas. Não executa `uname`, `lspci`, `inxi`, `journalctl` ou consultas novas; usa o último estado confirmado.
+
+`status` permanece pequeno e próprio para scripts; `diagnostics` é detalhado para suporte. Nenhum inclui históricos, arquivos pessoais, janelas ou aplicativos abertos, notificações, SSIDs, comandos, segredos ou ambiente do processo. O usuário pode redirecionar a resposta para arquivo. O modo debug acrescenta transições, duração, seleção de backend, validação e reconexões, sem alterar comportamento, segurança, timeouts ou privacidade. Falhas nativas de Qt/Quickshell podem impedir o registro final e ficam a cargo dos mecanismos externos existentes.
+
+## 12. Estratégia de testes
+
+A suíte combina análise estática, testes unitários, componentes, integração e uma camada menor de sistema. A maior parte roda sem Sway; somente fluxos dependentes de Wayland, Sway IPC e superfícies reais usam sessão completa.
+
+### 12.1 Ferramentas e níveis
+
+- `qmllint`, configurado por `.qmllint.ini`, trata imports e tipos não resolvidos, propriedades obrigatórias, ciclos, acesso não qualificado, incompatibilidades, APIs obsoletas e exceções injustificadas como erro; `qmlformat` verifica formato.
+- Qt Quick Test e `qmltestrunner -platform offscreen` exercitam funções puras, stores, controladores, ordenação, agrupamento, ranking, validação, persistência, respostas IPC, seleção de players e deduplicação.
+- Testes de componentes instanciam views com providers falsos e cobrem estado, foco, teclado, mouse, menus, overflow, confirmações, atualização, ausência e falha.
+- Integração combina stores, controladores e adaptadores para configuração, OSD, histórico, IPC, rede, persistência e encerramento.
+- Sistema inicia Hydrogen real em Sway headless com duas saídas virtuais e exercita Sway IPC, superfícies, foco, multimonitor, IPC do Quickshell, recarga, reinício e conflitos D-Bus.
+
+O produto não depende de `swaymsg`, mas testes podem usá-lo como observador e instrumento externo. A árvore `tests/` separa `unit`, `components`, `integration`, `system`, `mocks`, `fixtures` e `helpers`; arquivos executáveis seguem `tst_*.qml`.
+
+### 12.2 Fakes, fixtures e assincronia
+
+Cada interface interna possui fake controlável capaz de definir estado inicial, emitir mudanças, confirmar, falhar, atrasar, desconectar, recuperar e contar chamadas. Fakes implementam o contrato, não copiam a lógica real. Uma abstração de relógio permite avançar consolidação, gravação, polling, expiração, timeout e limitação de logs sem sleeps fixos. Testes assíncronos usam sinais ou espera por condição com timeout curto e verificam estados antes e depois da confirmação.
+
+Fixtures versionadas e sem dados pessoais cobrem árvores Sway, múltiplas saídas, Wayland/XWayland, diálogos, urgência, identificadores ambíguos, `.desktop`, Flatpak, Steam, web apps, AppImage, TOML válido e inválido, JSON corrompido ou futuro, notificações, MPRIS, PipeWire, redes, UPower, perfis e backlights. Testes nunca usam configuração ou home reais: recebem diretórios XDG e barramento D-Bus temporários e teardown garantido.
+
+### 12.3 Casos obrigatórios
+
+Multimonitor verifica uma barra por saída, backend único, filtragem correta, migração de workspace, painel na saída focada sem teletransporte, reabertura em outra saída, OSD e pop-up no monitor do evento, hotplug e ausência de duplicação. Todos os comandos, argumentos, códigos, falhas, indisponibilidades e respostas sanitizadas de `hydrogen.v1` usam testes orientados a dados e também são chamados no target real; confirmações não podem ser contornadas e nenhum argumento chega a shell.
+
+Integrações automatizáveis incluem Sway, DesktopEntries, `fd`, IPC, persistência temporária, D-Bus isolado e comandos inofensivos de sessão. PipeWire, UPower, power-profiles-daemon, NetworkManager, brilho real e energia usam fakes no CI principal e entram na verificação manual de release, junto de Flatpak, XWayland, Steam e bandejas reais. Resultado manual distingue aprovado, falhou e não disponível.
+
+Toda correção de bug ganha regressão quando possível. Permanecem obrigatórios casos para agrupamento sem título/PID, primeira regra exata, recarga sem duplicação, inicialização e reconexão sem OSD falso, ações próprias sem OSD duplicado, notificações restauradas sem ação, esquema futuro preservado, histórico privado ausente, senha fora dos logs, hotplug sem queda, provider opcional isolado, sessão sempre confirmada, execução sem shell, deduplicação e configuração inválida preservando o estado anterior.
+
+### 12.4 Ambientes, cobertura e CI
+
+O repositório fornece comandos únicos para análise, unitários, componentes, sistema e suíte completa; declara versões e oferece ambiente reproduzível, configuração mínima do Sway e receita de VM Arch Linux com Sway, Quickshell 0.3.1, dependências, usuário sem privilégios e aplicativos representativos. A receita é a fonte de verdade; imagens prontas podem acompanhar marcos ou releases, sem credenciais e usando snapshots descartáveis.
+
+Screenshots são complementares e limitados a estados estáveis, com fonte, tema, escala e renderer fixos, tolerância documentada, diff como artefato e atualização humana. Não substituem testes de comportamento ou acessibilidade.
+
+Não há porcentagem global artificial. A matriz requisito-teste exige cobertura integral dos comandos e códigos IPC, regras de segurança, migrações e critérios automatizáveis, além de cada estado de provider e ao menos uma falha e recuperação por integração. Código novo sem teste exige justificativa.
+
+Cada contribuição executa lint, unitários, componentes, integração sem hardware e validação de fixtures. Sistema headless é obrigatório antes de merge, possui timeout, duas saídas e conserva logs, diagnóstico e imagens somente em falha. Hardware real é obrigatório na preparação de release. Teste instável é defeito; retry pode coletar dados, não converter falha em sucesso. Skip requer capacidade realmente ausente e motivo explícito; testes são independentes e restauram o estado.
+
+## 13. Limites e não objetivos do MVP
 
 - Não configurar graficamente o Sway.
 - Não oferecer área de trabalho com ícones.
@@ -624,7 +688,7 @@ Cada componente segue: contrato e modelo, provider falso, store, controlador, in
 - Não oferecer suporte formal a outros compositores Wayland.
 - Não oferecer bandeja legada XEmbed.
 
-## 12. Requisitos de robustez
+## 14. Requisitos de robustez
 
 - Uma falha localizada não deve encerrar o shell inteiro.
 - Processos externos devem ter execução, cancelamento e tempo limite controlados.
@@ -635,7 +699,7 @@ Cada componente segue: contrato e modelo, provider falso, store, controlador, in
 - Recursos ausentes devem desaparecer sem deixar espaços vazios incoerentes.
 - OSDs automáticos não devem capturar foco nem interromper a entrada dirigida a outro aplicativo.
 
-## 13. Critérios de aceitação do Hydrogen 0.1
+## 15. Critérios de aceitação do Hydrogen 0.1
 
 1. O Hydrogen inicia com uma configuração padrão utilizável em uma sessão Sway usando Quickshell 0.3.1.
 2. Uma barra inferior completa é criada em cada saída ativa.
@@ -690,12 +754,20 @@ Cada componente segue: contrato e modelo, provider falso, store, controlador, in
 51. Cada backend possui uma única instância lógica compartilhada entre monitores, enquanto cada barra representa corretamente apenas sua saída.
 52. Componentes visuais funcionam com providers falsos, não acessam diretamente APIs externas, processos, sysfs, persistência ou arquivos de configuração.
 53. A falha ou ausência de um provider opcional desativa somente seu recurso e não interrompe barra, launcher ou providers independentes.
+54. Logs usam categorias, níveis e códigos normalizados, não expõem dados sensíveis e limitam ocorrências repetidas com resumo e recuperação.
+55. Recursos opcionais normalmente ausentes não produzem ruído; avisos visuais aparecem somente diante de impacto, tentativa do usuário ou ação possível.
+56. `status` e `diagnostics` retornam fotografias sanitizadas sem executar comandos externos nem revelar conteúdo pessoal.
+57. Stores, controladores e componentes são exercitados offscreen com providers e relógio falsos, cobrindo estados pronto, vazio, indisponível, degradado, falho e recuperado.
+58. Todos os comandos, argumentos, códigos e regras de segurança de `hydrogen.v1` são testados tanto no controlador quanto no target IPC real.
+59. A suíte de sistema inicia Sway headless com duas saídas, valida hotplug e overlays por monitor e isola integralmente diretórios XDG e D-Bus.
+60. Cada requisito automatizável possui ligação com teste, cada correção recebe regressão quando possível e skips informam uma capacidade realmente ausente.
+61. A receita da VM de referência é reproduzível, não contém credenciais e permite executar os cenários manuais de release.
 
-## 14. Marcos de desenvolvimento
+## 16. Marcos de desenvolvimento
 
 | Marco | Resultado esperado |
 |---|---|
-| 1. Fundação | Estrutura do Quickshell, configuração, logs, ciclo de vida e conexão com o IPC do Sway |
+| 1. Fundação | Estrutura do Quickshell, configuração, logging, diagnóstico, infraestrutura básica de testes, ciclo de vida e conexão com o IPC do Sway |
 | 2. Painel básico | Barra inferior por saída, launcher, relógio e estrutura responsiva |
 | 3. Navegação de janelas | Descoberta e agrupamento das janelas, foco, lista de seleção, overflow e seletor de workspaces |
 | 4. Launcher de aplicativos | Entradas desktop, pesquisa normal, ranking, teclado e itens mais usados |
@@ -706,28 +778,26 @@ Cada componente segue: contrato e modelo, provider falso, store, controlador, in
 | 9. Provedores de OSD | Áudio, microfone, brilho, mídia e perfis de energia |
 | 10. Notificações | Servidor Freedesktop, pop-ups, ações, agrupamento, central, histórico e modo não perturbe |
 | 11. IPC e atalhos | Ações públicas, arquivo para `include`, exemplos e documentação do contrato IPC |
-| 12. Polimento | Animações, multimonitor, teclado, tolerância a falhas, empacotamento e documentação |
+| 12. Polimento | Animações, multimonitor, teclado, tolerância a falhas, suíte de sistema, VM de referência, empacotamento e documentação |
 
 Cada componente deve ser concluído e testável antes do início do seguinte, exceto quando uma dependência ou interseção técnica exigir desenvolvimento conjunto.
 
-## 15. Decisões ainda abertas
+## 17. Decisões ainda abertas
 
 Os tópicos abaixo foram deliberadamente adiados e não devem ser fechados por conveniência durante a implementação:
 
-1. estratégia de logs e diagnóstico;
-2. estratégia de testes;
-3. empacotamento e instalação;
-4. ciclo de inicialização, recarga e encerramento;
-5. acessibilidade além da navegação por teclado;
-6. documentação de configuração e migração entre versões;
-7. critérios para considerar cada marco concluído;
-8. matriz de compatibilidade e testes com aplicativos reais.
+1. empacotamento e instalação;
+2. ciclo de inicialização, recarga e encerramento;
+3. acessibilidade além da navegação por teclado;
+4. documentação de configuração e migração entre versões;
+5. critérios para considerar cada marco concluído;
+6. matriz de compatibilidade e testes com aplicativos reais.
 
 Novas decisões não devem ser fechadas por conveniência durante a implementação. Questões de viabilidade devem ser tratadas como pesquisa técnica, sem reintroduzir recursos declarados como não objetivos.
 
 > **Definição e regra de escopo:** o Hydrogen é a camada visual cotidiana entre o Sway e o usuário de desktop tradicional: painel inferior, acesso a aplicativos, representação das janelas abertas, indicadores essenciais, launcher e controles contextuais. Uma nova função só deve entrar quando fizer parte dessa interação cotidiana; ser tecnicamente possível ou visualmente interessante não é justificativa suficiente.
 
-## 16. Orientação para implementação assistida por IA
+## 18. Orientação para implementação assistida por IA
 
 Ao usar este documento como contexto para uma IA implementadora:
 
