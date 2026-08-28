@@ -371,7 +371,33 @@ O Sway permanece responsável pelo registro de atalhos globais. O Hydrogen expõ
 - O projeto fornece um arquivo de configuração pronto para uso com `include` e reproduz o mesmo trecho, com explicações, no README.
 - Launcher e menu de sessão são abertos no monitor focado, conforme as regras gerais de múltiplos monitores.
 
-Os nomes, argumentos e efeitos das ações IPC fazem parte da interface técnica do projeto e devem ser documentados e cobertos por testes. Mudanças incompatíveis nesses nomes exigem tratamento explícito de compatibilidade.
+#### Contrato IPC público v1
+
+O transporte usa `IpcHandler` do Quickshell e o target versionado `hydrogen.v1`, chamado por `qs ipc call hydrogen.v1 <função> [argumentos...]`. O número identifica a versão do contrato, não a versão do aplicativo. Adições compatíveis permanecem no v1; remover, renomear ou alterar o significado de uma chamada exige novo target e, quando viável, convivência temporária com a versão anterior. Nomes de objetos QML, singletons e componentes internos nunca integram a API.
+
+| Grupo | Formas aceitas |
+|---|---|
+| Painéis | `panel show|hide|toggle launcher|notifications|network|session` |
+| Não perturbe | `dnd get|toggle` e `dnd set true|false` |
+| Áudio | `audio volume set|change <percentual>` e `audio mute toggle` |
+| Microfone | `microphone mute toggle` |
+| Brilho | `brightness get`, `brightness set <percentual>` e `brightness change <pontos>` |
+| Mídia | `media play-pause|play|pause|next|previous` |
+| Perfil de energia | `power-profile get|cycle` e `power-profile set power-saver|balanced|performance` |
+| Sessão | `session show` e `session request logout|reboot|poweroff` |
+| Notificações | `notifications show|clear|mark-all-read` |
+| Configuração | `reload config` |
+| Diagnóstico | `version`, `status` e `capabilities` |
+
+Painéis abrem na saída focada; `hide` também os encontra em outra saída. Abrir um painel fecha outro mutuamente exclusivo naquela saída. Ações de áudio usam o dispositivo padrão do PipeWire, brilho usa o dispositivo selecionado pela configuração e percentuais são inteiros limitados ao intervalo válido. Não há seleção pública de dispositivos no v1. Operações só são confirmadas depois de o backend publicar o valor efetivo, que também alimenta o OSD.
+
+Mídia seleciona primeiro o player em reprodução, depois o usado mais recentemente e, por fim, o primeiro em ordem estável, sempre respeitando capacidades MPRIS. `power-profile cycle` percorre `power-saver`, `balanced` e `performance`, pulando perfis indisponíveis. Chamadas `session request` apenas abrem a confirmação visual; nenhuma variante pública pode contorná-la. Limpar notificações também pede confirmação quando houver itens, e `mark-all-read` não remove o histórico. O IPC não injeta notificações nem executa ações antigas por identificador.
+
+`reload config` valida uma nova fotografia antes de ativá-la, preserva a última configuração válida e não recarrega a instância QML. `version` informa versões do Hydrogen, IPC e Quickshell; `status` resume saúde, saída focada, painel aberto, Não Perturbe, backends e erros acionáveis; `capabilities` enumera apenas recursos disponíveis. Consultas nunca retornam senhas, históricos, comandos, caminhos usados, corpos de notificações, MACs ou dados desnecessários de processos.
+
+Toda resposta é uma string JSON compacta com `ok`, `code`, `message` e `data`. Clientes dependem de `code`, nunca da mensagem traduzível. O v1 reconhece `success`, `invalid_arguments`, `unknown_command`, `feature_unavailable`, `operation_unsupported`, `backend_not_ready`, `backend_failure`, `confirmation_required`, `configuration_invalid`, `busy` e `internal_error`. Operações incompatíveis sobre o mesmo recurso são serializadas; chamadas rápidas de volume e brilho podem ser consolidadas; durante o encerramento novas mutações são recusadas.
+
+O IPC é local à sessão, registrado apenas depois que o núcleo estiver pronto e encaminha todas as ações aos mesmos controladores usados pela interface. Argumentos usam tipos, limites e listas fechadas; nenhum deles passa por shell. Não existem métodos genéricos `exec`, `run`, `eval` ou acesso a objetos QML, edição de TOML, escuta de rede, ações forçadas ou comandos arbitrários. Os nomes, argumentos, respostas e efeitos fazem parte da interface técnica e devem ser documentados e cobertos por testes.
 
 ## 7. Aparência e interação
 
@@ -522,7 +548,65 @@ As únicas ferramentas externas obrigatórias do MVP são `fd` e `brightnessctl`
 
 Quando um recurso não estiver disponível no hardware ou no serviço ativo, seu controle será ocultado silenciosamente. A ausência de um recurso não utilizado não deve produzir uma interface repleta de estados de erro. Cada integração fica atrás de uma interface interna para permitir evolução sem acoplar os componentes visuais ao backend.
 
-## 10. Limites e não objetivos do MVP
+## 10. Arquitetura interna
+
+O Hydrogen permanece uma aplicação QML/Quickshell no MVP, sem daemon próprio, biblioteca C++ ou sistema genérico de plugins. A separação é lógica e modular: apresentação envia intenções a controladores; controladores usam interfaces internas; adaptadores conversam com Quickshell, Sway e o sistema; stores recebem somente estados normalizados e confirmados; a apresentação reage a esses stores. Componentes visuais nunca usam diretamente `Process`, sysfs, Sway IPC ou APIs externas.
+
+### 10.1 Camadas e responsabilidades
+
+- **Composição e ciclo de vida:** `shell.qml` instancia configuração, persistência, adaptadores, stores, controladores, superfícies e IPC na ordem correta, sem acumular regras de domínio.
+- **Domínio:** modelos e stores representam janelas, aplicativos, workspaces, launcher, notificações, áudio, mídia, brilho, rede, energia, configuração, capacidades e overlays sem criar superfícies nem executar comandos.
+- **Controladores:** recebem ações da interface e do IPC e coordenam stores e providers. Cada recurso possui controlador próprio; interface e IPC percorrem exatamente o mesmo caminho.
+- **Interfaces internas:** contratos documentados de propriedades, estados, sinais, métodos e tipos para gerenciador de janelas, áudio, mídia, brilho, rede, energia, bateria, notificações, sessão, entradas desktop e busca de arquivos.
+- **Adaptadores:** implementam os contratos com Sway IPC, PipeWire, MPRIS, UPower, PowerProfiles, Networking, SystemTray, NotificationServer, DesktopEntries, sysfs, `brightnessctl`, `fd` e comandos estruturados de sessão. Somente eles conhecem objetos externos, acessam sysfs, analisam respostas ou usam `Process`.
+- **Apresentação:** barra, launcher, central, OSDs, painéis, menus e diálogos recebem modelos normalizados e desconhecem a tecnologia do backend.
+
+`AppContext` reúne referências, não regras, e cada componente recebe apenas os stores e controladores necessários. Os serviços são instâncias únicas em sentido lógico, mas não precisam ser singletons QML globais. Dependências são fornecidas explicitamente para permitir providers e contextos falsos em testes; componentes não procuram objetos por `objectName` ou pela árvore QML.
+
+### 10.2 Organização inicial do código
+
+```text
+hydrogen/
+├── shell.qml
+├── core/          # composição, ciclo de vida, capacidades, overlays e erros
+├── domain/        # models, stores, controllers e eventos
+├── providers/     # adaptadores agrupados por integração
+├── features/      # bar, launcher, notifications, osd, network e session
+├── ui/            # controles, ícones, menus e diálogos compartilhados
+├── config/        # leitura, validação, padrões e esquemas
+├── persistence/   # repositories dos arquivos de estado
+├── ipc/           # PublicIpcV1, respostas e códigos
+├── diagnostics/   # logger, limitação e fotografia diagnóstica
+└── tests/         # unitários, integração, componentes, mocks e fixtures
+```
+
+Uma feature não importa partes internas de outra. Lógica compartilhada sobe para `domain/`; elementos visuais compartilhados, para `ui/`. JavaScript é reservado a funções puras de transformação, ordenação, normalização, formatação e validação, nunca a serviços globais mutáveis.
+
+### 10.3 Estado, eventos e múltiplos monitores
+
+Cada domínio possui uma única fonte autoritativa: stores próprios para gerenciador de janelas, identidades de aplicativos, overlays, áudio, mídia, brilho, rede, energia, notificações, launcher e configuração, além do registro de capacidades. Views mantêm apenas estado efêmero, como foco, consulta, rolagem e animação; não copiam volume, rede, janelas, notificações ou configuração.
+
+Há uma única conexão lógica com cada backend e um único conjunto de stores para todas as saídas. Cada monitor recebe uma instância visual da barra que filtra o modelo global pela saída. O `OverlayCoordinator` mantém uma superfície principal ativa, fixa-a à saída focada no momento da abertura e a recria quando solicitada em outra saída; mudar o foco não teletransporta uma superfície aberta. OSDs e pop-ups usam a saída focada no momento do evento.
+
+Um barramento interno é permitido somente para eventos transitórios normalizados — OSD, aviso acionável, mudança de disponibilidade, recarga e encerramento. Estado consultável permanece em stores, e decisões de domínio não dependem de mensagens informais.
+
+### 10.4 Configuração, persistência e IPC
+
+Somente o repository de configuração lê arquivos. Parsing, validação e combinação com padrões antecedem uma fotografia efetiva imutável; cada componente recebe apenas seu namespace validado, e falhas preservam a fotografia anterior. Stores decidem o conteúdo persistível e repositories cuidam do envelope, esquema e gravação atômica; nenhuma feature escreve diretamente no diretório XDG. O gerenciador de ciclo de vida solicita o flush final.
+
+`PublicIpcV1` é apenas um adaptador de entrada: valida argumentos, chama controladores e serializa respostas. Não acessa providers ou elementos visuais diretamente e não duplica lógica de domínio.
+
+### 10.5 Disponibilidade e isolamento de falhas
+
+Providers publicam `initializing`, `ready`, `unavailable`, `degraded` ou `failed`. Ausência esperada de hardware ou serviço torna apenas o recurso indisponível; erro inesperado entra no registro de erros, com repetição limitada nos logs. Reconexões estabelecem uma fotografia inicial antes de emitir eventos e providers não reiniciam serviços externos automaticamente.
+
+Somente falha do núcleo QML, ausência de sessão Sway utilizável, impossibilidade de criar qualquer superfície ou padrões internos inválidos impedem a inicialização. Falhas em mídia, rede, bateria, brilho, bandeja ou notificações permanecem locais. Uma falha visual em uma saída não deve encerrar as demais barras.
+
+### 10.6 Desenvolvimento por componente
+
+Cada componente segue: contrato e modelo, provider falso, store, controlador, interface, provider real, testes de integração e documentação. Ele só está apto a liberar o próximo quando funciona com provider falso e backend real aplicável, cobre estados vazio, carregando, indisponível e erro, opera por teclado, respeita fronteiras, possui testes principais e não deixa erros recorrentes no log. Desenvolvimento conjunto ocorre apenas diante de dependência ou interseção técnica inseparável.
+
+## 11. Limites e não objetivos do MVP
 
 - Não configurar graficamente o Sway.
 - Não oferecer área de trabalho com ícones.
@@ -540,7 +624,7 @@ Quando um recurso não estiver disponível no hardware ou no serviço ativo, seu
 - Não oferecer suporte formal a outros compositores Wayland.
 - Não oferecer bandeja legada XEmbed.
 
-## 11. Requisitos de robustez
+## 12. Requisitos de robustez
 
 - Uma falha localizada não deve encerrar o shell inteiro.
 - Processos externos devem ter execução, cancelamento e tempo limite controlados.
@@ -551,7 +635,7 @@ Quando um recurso não estiver disponível no hardware ou no serviço ativo, seu
 - Recursos ausentes devem desaparecer sem deixar espaços vazios incoerentes.
 - OSDs automáticos não devem capturar foco nem interromper a entrada dirigida a outro aplicativo.
 
-## 12. Critérios de aceitação do Hydrogen 0.1
+## 13. Critérios de aceitação do Hydrogen 0.1
 
 1. O Hydrogen inicia com uma configuração padrão utilizável em uma sessão Sway usando Quickshell 0.3.1.
 2. Uma barra inferior completa é criada em cada saída ativa.
@@ -601,8 +685,13 @@ Quando um recurso não estiver disponível no hardware ou no serviço ativo, seu
 46. Histórico do launcher e de notificações sobrevivem ao reinício, aplicam simultaneamente seus limites de idade e quantidade e não recriam entradas privadas ou inválidas.
 47. Notificações restauradas não reaparecem como pop-up nem oferecem ações DBus obsoletas; o modo não perturbe conserva seu estado após reiniciar.
 48. Arquivo corrompido é isolado sem derrubar o shell, versão futura desconhecida não é sobrescrita e falha de gravação preserva o estado em memória.
+49. O target `hydrogen.v1` implementa todas as chamadas, respostas e códigos documentados, valida argumentos sem shell e não oferece forma de contornar confirmações de sessão.
+50. Interface e IPC usam os mesmos controladores; uma mudança solicitada só é publicada e exibida após confirmação do provider correspondente.
+51. Cada backend possui uma única instância lógica compartilhada entre monitores, enquanto cada barra representa corretamente apenas sua saída.
+52. Componentes visuais funcionam com providers falsos, não acessam diretamente APIs externas, processos, sysfs, persistência ou arquivos de configuração.
+53. A falha ou ausência de um provider opcional desativa somente seu recurso e não interrompe barra, launcher ou providers independentes.
 
-## 13. Marcos de desenvolvimento
+## 14. Marcos de desenvolvimento
 
 | Marco | Resultado esperado |
 |---|---|
@@ -621,26 +710,24 @@ Quando um recurso não estiver disponível no hardware ou no serviço ativo, seu
 
 Cada componente deve ser concluído e testável antes do início do seguinte, exceto quando uma dependência ou interseção técnica exigir desenvolvimento conjunto.
 
-## 14. Decisões ainda abertas
+## 15. Decisões ainda abertas
 
 Os tópicos abaixo foram deliberadamente adiados e não devem ser fechados por conveniência durante a implementação:
 
-1. contrato completo do IPC público;
-2. arquitetura interna e separação dos componentes;
-3. estratégia de logs e diagnóstico;
-4. estratégia de testes;
-5. empacotamento e instalação;
-6. ciclo de inicialização, recarga e encerramento;
-7. acessibilidade além da navegação por teclado;
-8. documentação de configuração e migração entre versões;
-9. critérios para considerar cada marco concluído;
-10. matriz de compatibilidade e testes com aplicativos reais.
+1. estratégia de logs e diagnóstico;
+2. estratégia de testes;
+3. empacotamento e instalação;
+4. ciclo de inicialização, recarga e encerramento;
+5. acessibilidade além da navegação por teclado;
+6. documentação de configuração e migração entre versões;
+7. critérios para considerar cada marco concluído;
+8. matriz de compatibilidade e testes com aplicativos reais.
 
 Novas decisões não devem ser fechadas por conveniência durante a implementação. Questões de viabilidade devem ser tratadas como pesquisa técnica, sem reintroduzir recursos declarados como não objetivos.
 
 > **Definição e regra de escopo:** o Hydrogen é a camada visual cotidiana entre o Sway e o usuário de desktop tradicional: painel inferior, acesso a aplicativos, representação das janelas abertas, indicadores essenciais, launcher e controles contextuais. Uma nova função só deve entrar quando fizer parte dessa interação cotidiana; ser tecnicamente possível ou visualmente interessante não é justificativa suficiente.
 
-## 15. Orientação para implementação assistida por IA
+## 16. Orientação para implementação assistida por IA
 
 Ao usar este documento como contexto para uma IA implementadora:
 
