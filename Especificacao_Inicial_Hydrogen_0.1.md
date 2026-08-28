@@ -670,7 +670,76 @@ Não há porcentagem global artificial. A matriz requisito-teste exige cobertura
 
 Cada contribuição executa lint, unitários, componentes, integração sem hardware e validação de fixtures. Sistema headless é obrigatório antes de merge, possui timeout, duas saídas e conserva logs, diagnóstico e imagens somente em falha. Hardware real é obrigatório na preparação de release. Teste instável é defeito; retry pode coletar dados, não converter falha em sucesso. Skip requer capacidade realmente ausente e motivo explícito; testes são independentes e restauram o estado.
 
-## 13. Limites e não objetivos do MVP
+## 13. Ciclo de inicialização, recarga e encerramento
+
+O `LifecycleManager` coordena uma máquina de estados global e explícita. Providers mantêm seus próprios estados independentes; a ausência esperada de um recurso opcional não degrada o ciclo global. Os estados são `starting`, `loading_configuration`, `starting_core`, `starting_providers`, `creating_surfaces`, `running`, `reloading`, `degraded`, `shutting_down`, `stopped` e `failed`. `failed` é terminal naquela execução, e não há retorno depois de `shutting_down`.
+
+### 13.1 Inicialização por fases
+
+A inicialização segue a ordem abaixo:
+
+1. criar `LifecycleManager`, logging e `ErrorRegistry`, identificar versões e registrar a instância;
+2. carregar padrões internos, ler, analisar e validar os TOMLs e publicar a primeira fotografia imutável no `ConfigurationStore`;
+3. criar stores, repositories, controladores, barramento restrito, `OverlayCoordinator` e infraestrutura dos providers;
+4. restaurar persistência antes de as views consumirem os dados;
+5. conectar e sincronizar providers essenciais e opcionais;
+6. criar uma barra por saída depois que Sway e saídas estiverem sincronizados;
+7. registrar `hydrogen.v1` somente após os controladores essenciais e pelo menos uma superfície estarem prontos;
+8. avançar para `running` ou `degraded`.
+
+Existem dois limites de prontidão. **Pronto para exibir** exige núcleo, configuração efetiva, sessão Sway e ao menos uma superfície. **Totalmente sincronizado** significa que os providers disponíveis publicaram a fotografia inicial. A barra pode aparecer antes das integrações opcionais, mas nunca inventa valores provisórios.
+
+Sway, saídas, workspaces e janelas formam o grupo essencial. Notificações, bandeja, áudio, mídia, energia, brilho e rede iniciam em paralelo depois do núcleo e podem falhar isoladamente. Busca, execução, sessão e segredos de rede são preparados durante a inicialização, mas trabalham sob demanda. Cada provider publica uma fotografia inicial antes de eventos incrementais; sincronização inicial e reconexão não produzem OSDs, pop-ups ou efeitos equivalentes a uma nova ação.
+
+Ausência de arquivos do usuário é válida e usa os padrões. Padrões internos inválidos são fatais. Configuração do usuário inválida pode iniciar com os trechos válidos e padrões, acompanhada de aviso acionável. Persistência ausente inicia vazia; corrupção é isolada; esquema antigo conhecido é migrado; esquema futuro é preservado sem sobrescrita; falha de leitura mantém estado em memória e gera erro acionável. Restauração não recria pop-ups, ações D-Bus, OSDs ou registros antigos no `ErrorRegistry`.
+
+Se uma saída falhar, as demais continuam. Se nenhuma superfície puder ser criada, a inicialização falha e os recursos já iniciados são encerrados. O target IPC ocupado também é falha essencial. Timeouts são definidos por operação: Sway, superfícies e IPC são essenciais; providers opcionais apenas mudam seu próprio estado. Não há timeout global curto condicionado por uma integração opcional lenta.
+
+### 13.2 Recarga transacional da configuração
+
+A observação dos TOMLs consolida eventos de escrita por uma janela inicial de 250 ms. Arquivos relacionados são relidos como conjunto, recargas não executam em paralelo e uma alteração recebida durante a recarga agenda nova rodada ao final. O fluxo lê, analisa, valida, combina com padrões, cria uma fotografia candidata, calcula diferenças e publica atomicamente somente quando válida. Conteúdo efetivamente idêntico não notifica componentes.
+
+Se a candidata for inválida, a fotografia anterior permanece inteira e ativa; nenhuma superfície ou provider recebe valores parciais. O erro informa arquivo e chave sem revelar valor sensível, é deduplicado e desaparece depois da correção. Cada fotografia recebe `configuration_generation`; operações assíncronas guardam a geração em que começaram e resultados obsoletos são descartados quando já não fizerem sentido.
+
+As diferenças produzem a menor reação necessária:
+
+- aparência, tempos, limites e preferências compatíveis são aplicados imediatamente;
+- posição, dimensão ou composição visual reconstroem somente as superfícies afetadas;
+- seleção de backend, dispositivo ou método de consulta reinicia somente o provider correspondente;
+- opção futura que exija reinício é preservada e informada para a próxima execução, sem reinício automático.
+
+Durante `reloading`, a interface anterior continua operando. Foco não é roubado, overlays compatíveis permanecem, menus incompatíveis fecham controladamente e recarga não gera OSD. Quando uma barra precisa ser substituída, a nova é preparada antes da remoção da anterior sempre que possível, sem duas zonas exclusivas simultâneas; falha preserva ou restaura a instância anterior.
+
+O IPC v1 oferece `reload`, que usa o mesmo fluxo, informa se houve mudança e as gerações anterior e atual. Ele não reinicia o processo, recarrega QML nem reconecta providers sem necessidade.
+
+A recarga dos arquivos-fonte QML pelo Quickshell é separada. Em desenvolvimento, `watchFiles` pode permanecer ativo e superfícies usam `reloadableId` estável quando útil. Na instalação normal, a recarga do código fica desabilitada; alterações de pacote entram na próxima execução. Transferência automática de objetos recarregáveis nunca substitui a persistência do Hydrogen.
+
+### 13.3 Encerramento coordenado
+
+Motivos de saída são distinguidos como `user_request`, `ipc_request`, `compositor_exit`, `session_ending`, `quickshell_reload`, `process_signal`, `fatal_error` e `last_surface_lost`. Ao receber a primeira solicitação válida, o estado muda imediatamente para `shutting_down`; novas recargas, buscas, conexões, ações de sessão e demais mutações são recusadas, timers e reconexões param e solicitações seguintes não criam outro fluxo.
+
+A ordem de encerramento é:
+
+1. publicar `shutdown_started` e bloquear novas mutações;
+2. fechar launcher, menus e diálogos;
+3. interromper produtores de eventos e cancelar operações canceláveis;
+4. aguardar apenas operações críticas já confirmadas;
+5. obter fotografias persistíveis e executar flush atômico;
+6. abandonar nomes D-Bus, desconectar providers e remover o target IPC;
+7. destruir superfícies;
+8. registrar o término possível e chamar `Qt.quit()`.
+
+Providers encerram aproximadamente na ordem inversa da inicialização. Leituras e pesquisas são canceladas; operações já confirmadas não são repetidas; ações destrutivas concorrentes não começam; gravações já iniciadas recebem oportunidade limitada de conclusão. O orçamento inicial do encerramento coordenado é de dois segundos. Repositories independentes podem gravar em paralelo, e nenhum provider, processo, lock ou animação mantém o shell vivo indefinidamente. Dados importantes são persistidos também durante a execução; o flush final é uma última garantia.
+
+Perder uma saída remove apenas suas superfícies e overlays. Se todas desaparecerem temporariamente, o Hydrogen espera sua reconfiguração sem encerrar. Perda definitiva da conexão com Sway inicia saída com motivo `compositor_exit`; o Hydrogen não tenta iniciar ou reiniciar o compositor. `lastWindowClosed` isoladamente não determina o encerramento.
+
+Transições visuais podem usar `RetainableLock` por tempo curto, com liberação garantida, mas nunca bloqueiam o encerramento global. O Hydrogen não reinicia a si, Quickshell, Sway ou serviços externos e não implementa supervisor próprio. Falha nativa, `SIGKILL` ou perda de energia podem impedir o flush e o log final.
+
+`status` expõe estado, geração, recarga em andamento e solicitação de saída. `diagnostics` acrescenta duração das fases, providers pendentes, motivo de degradação, última recarga, rejeições, operações e gravações pendentes e superfícies esperadas/criadas. O barramento transitório recebe início e término de fases, recarga aceita ou rejeitada e início/término do encerramento; o estado consultável permanece no `LifecycleManager`.
+
+O ciclo está concluído quando a inicialização por fases, sincronização sem efeitos falsos, prontidão mínima do IPC, recarga atômica, descarte de respostas obsoletas, reconstrução localizada, recusa de mutações durante saída, flush limitado, hotplug e perda do Sway estiverem cobertos com providers falsos e Sway headless.
+
+## 14. Limites e não objetivos do MVP
 
 - Não configurar graficamente o Sway.
 - Não oferecer área de trabalho com ícones.
@@ -688,7 +757,7 @@ Cada contribuição executa lint, unitários, componentes, integração sem hard
 - Não oferecer suporte formal a outros compositores Wayland.
 - Não oferecer bandeja legada XEmbed.
 
-## 14. Requisitos de robustez
+## 15. Requisitos de robustez
 
 - Uma falha localizada não deve encerrar o shell inteiro.
 - Processos externos devem ter execução, cancelamento e tempo limite controlados.
@@ -699,7 +768,7 @@ Cada contribuição executa lint, unitários, componentes, integração sem hard
 - Recursos ausentes devem desaparecer sem deixar espaços vazios incoerentes.
 - OSDs automáticos não devem capturar foco nem interromper a entrada dirigida a outro aplicativo.
 
-## 15. Critérios de aceitação do Hydrogen 0.1
+## 16. Critérios de aceitação do Hydrogen 0.1
 
 1. O Hydrogen inicia com uma configuração padrão utilizável em uma sessão Sway usando Quickshell 0.3.1.
 2. Uma barra inferior completa é criada em cada saída ativa.
@@ -762,8 +831,17 @@ Cada contribuição executa lint, unitários, componentes, integração sem hard
 59. A suíte de sistema inicia Sway headless com duas saídas, valida hotplug e overlays por monitor e isola integralmente diretórios XDG e D-Bus.
 60. Cada requisito automatizável possui ligação com teste, cada correção recebe regressão quando possível e skips informam uma capacidade realmente ausente.
 61. A receita da VM de referência é reproduzível, não contém credenciais e permite executar os cenários manuais de release.
+62. A inicialização percorre fases explícitas, registra o IPC somente após a prontidão mínima e permite que providers opcionais terminem depois da criação das barras.
+63. Fotografias iniciais, restauração e reconexão não produzem OSDs, pop-ups ou ações equivalentes a novos eventos.
+64. A recarga TOML é transacional, consolida alterações, preserva a última geração válida e aplica somente a menor reação necessária.
+65. Respostas assíncronas obsoletas não sobrescrevem estado de uma geração de configuração posterior.
+66. Durante o encerramento, novas mutações são recusadas, operações canceláveis terminam e a persistência recebe flush atômico dentro de prazo limitado.
+67. Remover uma saída não encerra o shell nem afeta as demais barras, enquanto a perda definitiva do Sway inicia encerramento coordenado sem tentar reiniciar o compositor.
+68. Cada marco possui portões comuns e específicos, relatório versionado e evidências reproduzíveis antes de liberar o seguinte.
+69. Nenhum marco é concluído com placeholder, teste instável conhecido, defeito incompatível com seu escopo ou contrato necessário ainda instável.
+70. Uma regressão que invalide critérios anteriores reabre formalmente o marco afetado e exige nova validação sem apagar a evidência histórica.
 
-## 16. Marcos de desenvolvimento
+## 17. Marcos de desenvolvimento
 
 | Marco | Resultado esperado |
 |---|---|
@@ -782,22 +860,74 @@ Cada contribuição executa lint, unitários, componentes, integração sem hard
 
 Cada componente deve ser concluído e testável antes do início do seguinte, exceto quando uma dependência ou interseção técnica exigir desenvolvimento conjunto.
 
-## 17. Decisões ainda abertas
+## 18. Critérios de conclusão dos marcos
+
+A conclusão de um marco é binária: `completed` ou ainda não concluído. Os estados de acompanhamento são `not_started`, `in_progress`, `blocked`, `validation` e `completed`; `validation` não libera o marco seguinte. Não existe conclusão parcial, “com ressalvas” ou baseada apenas em porcentagem implementada.
+
+### 18.1 Portões comuns
+
+Todo marco só chega a `completed` quando, simultaneamente:
+
+- entregou todos os requisitos obrigatórios do seu escopo, sem placeholders ou telas fictícias;
+- respeita arquitetura, fontes únicas de estado, instâncias globais de backend e isolamento entre features;
+- passa `qmllint`, formatação e testes aplicáveis sem warnings recorrentes, código temporário ou desativações globais injustificadas;
+- cobre regras de domínio, estados aplicáveis de provider, sucesso, falha, atraso e recuperação;
+- oferece operação por teclado nos fluxos interativos e não captura foco indevidamente;
+- não envia argumentos a shell, expõe segredos, contorna confirmação ou exige elevação automática;
+- atualiza contratos, instruções de execução, limitações, matriz requisito-teste e decisões técnicas;
+- pode ser demonstrado e reproduzido por pessoa diferente da implementadora no ambiente de referência;
+- não possui defeito bloqueador, crítico, alto ou médio que contradiga seu critério de aceitação.
+
+Defeito baixo pode permanecer apenas se documentado e sem perda funcional. Uma limitação só é aceitável quando está explicitamente fora do escopo, não quebra entrega anterior nem contradiz o MVP. Correções feitas durante a validação recebem regressão quando possível. Testes instáveis, skips sem capacidade ausente comprovada, dependência da home real, dados pessoais em fixtures e código novo sem teste ou justificativa impedem a conclusão.
+
+### 18.2 Portões específicos
+
+**Marco 1 — Fundação:** estrutura modular, ciclo de vida, configuração validada, stores, repositories, controladores, providers falsos, relógio controlável, logging, `ErrorRegistry`, persistência básica, conexão única com Sway, fotografias iniciais, `status`, `diagnostics`, lint e testes básicos devem funcionar. A demonstração inicia Sway headless com duas saídas, carrega padrões, aceita e rejeita recargas corretamente e encerra com flush. Não ficam pendentes ordem informal de inicialização, stores fictícios, conexões duplicadas ou acesso de views a arquivos.
+
+**Marco 2 — Painel básico:** uma barra inferior responsiva por saída, áreas esquerda/centro/direita, relógio central, zona exclusiva e launcher estrutural no monitor focado devem funcionar com hotplug, dimensões e escalas diferentes. Só existe um overlay principal, que não teletransporta depois de aberto. O launcher ainda pode não pesquisar, mas não exibe resultados falsos.
+
+**Marco 3 — Navegação de janelas:** descoberta Wayland/XWayland, identidade confiável, regras manuais, agrupamento, ordem estável, foco, lista, fechamento, urgência, overflow e workspaces por saída devem funcionar. Título ou PID nunca bastam para agrupar e janelas desconhecidas continuam acessíveis. A demonstração inclui grupos, títulos iguais, identidade ausente, XWayland, urgência, overflow e duas saídas.
+
+**Marco 4 — Launcher de aplicativos:** Desktop Entries válidas, busca, ranking determinístico, limite, mais usados, teclado, execução estruturada, `Terminal=true` e falhas acionáveis devem funcionar. Fixtures e demonstração cobrem aplicativo comum, Flatpak, Steam ou aplicação representativa, terminal e entrada inexequível. `Exec` nunca é interpretado como texto bruto por shell.
+
+**Marco 5 — Launcher completo:** busca `fd` sob demanda a partir de três caracteres, cancelamento e descarte de respostas antigas, abertura XDG por URL, modo `>`, modificadores, ações internas, histórico limitado e privacidade devem funcionar. A demonstração força consultas fora de ordem, caminhos especiais, comandos com argumentos, execução privada, terminal, limpeza e restauração. Consultas, comandos e caminhos pessoais não aparecem nos logs.
+
+**Marco 6 — Painéis contextuais:** calendário, bateria, sessão, volume e rede usam o `OverlayCoordinator`, teclado e providers confirmados. Recursos ausentes desaparecem; sessão exige confirmação incontornável; rede cobre todos os dispositivos, atualização da lista, redes conhecidas, `NoSecrets`, senha efêmera, bloqueio físico e falha localizada. Nenhuma view altera estado antes da confirmação do provider.
+
+**Marco 7 — Bandeja e indicadores:** uma coleção lógica compartilhada projeta StatusNotifierItems em todas as barras, com DBusMenu, ações reais, atualização, remoção, ordem estável e overflow. Item inválido ou removido durante menu aberto não afeta os demais, e ausência normal de bandeja não gera ruído.
+
+**Marco 8 — Infraestrutura de OSD:** posicionamento na saída focada no evento, pilha de até três tipos, substituição do mais antigo, atualização de repetidos, foco, temporizador controlável, pausa, interação e remoção de saída devem funcionar. OSD automático nunca rouba foco, sincronização pode ser suprimida e animações ou retenções não deixam objetos vivos indefinidamente.
+
+**Marco 9 — Providers de OSD:** áudio, microfone, brilho, mídia e perfis de energia observam alterações internas e externas sem duplicação. Inicialização e reconexão não geram cartões; brilho não usa processos periódicos; player é escolhido pela regra documentada; capacidades ausentes são ocultadas. Cada provider demonstra falha, desconexão e recuperação isoladas.
+
+**Marco 10 — Notificações:** servidor Freedesktop, capacidades verdadeiras, texto simples, urgência, temporizadores, ações, agrupamento, central, leitura, limites, persistência e não perturbe devem funcionar. Restauração não recria pop-ups nem ações antigas, conflito de servidor afeta somente notificações e conteúdo nunca chega a logs ou diagnóstico.
+
+**Marco 11 — IPC e atalhos:** todas as chamadas, argumentos, códigos e envelopes de `hydrogen.v1` funcionam no controlador e no target real; interface e IPC usam os mesmos controladores; `status`, `diagnostics` e `reload` obedecem seus contratos; confirmação não pode ser contornada. O arquivo para `include`, os atalhos de exemplo e o versionamento público são documentados sem modificar a configuração do usuário.
+
+**Marco 12 — Polimento:** os onze marcos permanecem aprovados em conjunto; animações, teclado, acessibilidade definida, contraste, escala, textos longos, multimonitor, hotplug, falhas injetadas, ciclo completo, persistência, privacidade, suíte de sistema, VM, matriz real, instalação, atualização, remoção, licenças e documentação são validados. Não permanecem requisito sem método de teste, suíte instável, instalação irreproduzível ou defeito incompatível com o MVP.
+
+### 18.3 Relatório e avanço
+
+Cada marco termina com relatório versionado contendo marco, commit ou versão, estado, escopo entregue, critérios aprovados, testes e ambiente, demonstração, defeitos e limitações, documentação, decisões, responsável pela validação e data. Evidências apontam testes, CI, diagnóstico sanitizado, screenshots estáveis, roteiro manual e matriz aplicável, em vez de apenas declarar que foi testado.
+
+O próximo marco começa somente depois de `completed`, relatório existente, testes obrigatórios aprovados, contratos necessários estáveis e nenhuma correção aberta que os altere. Desenvolvimento conjunto exige dependência inseparável registrada antes, escopo limitado e permanece sob o portão do marco mais antigo.
+
+Um marco concluído é reaberto se regressão, decisão posterior, novo teste, mudança de dependência ou questão de segurança invalidar seus critérios. O relatório anterior é preservado e a nova validação registra causa, impacto, correção, testes e evidência.
+
+## 19. Decisões ainda abertas
 
 Os tópicos abaixo foram deliberadamente adiados e não devem ser fechados por conveniência durante a implementação:
 
 1. empacotamento e instalação;
-2. ciclo de inicialização, recarga e encerramento;
-3. acessibilidade além da navegação por teclado;
-4. documentação de configuração e migração entre versões;
-5. critérios para considerar cada marco concluído;
-6. matriz de compatibilidade e testes com aplicativos reais.
+2. acessibilidade além da navegação por teclado;
+3. documentação de configuração e migração entre versões;
+4. matriz de compatibilidade e testes com aplicativos reais.
 
 Novas decisões não devem ser fechadas por conveniência durante a implementação. Questões de viabilidade devem ser tratadas como pesquisa técnica, sem reintroduzir recursos declarados como não objetivos.
 
 > **Definição e regra de escopo:** o Hydrogen é a camada visual cotidiana entre o Sway e o usuário de desktop tradicional: painel inferior, acesso a aplicativos, representação das janelas abertas, indicadores essenciais, launcher e controles contextuais. Uma nova função só deve entrar quando fizer parte dessa interação cotidiana; ser tecnicamente possível ou visualmente interessante não é justificativa suficiente.
 
-## 18. Orientação para implementação assistida por IA
+## 20. Orientação para implementação assistida por IA
 
 Ao usar este documento como contexto para uma IA implementadora:
 
