@@ -7,7 +7,13 @@ const Navigation = loadQmlJavaScript(new URL("../../hydrogen/logic/WindowNavigat
 const catalog = [
     { id: "org.example.Editor", name: "Editor", icon: "editor", startupClass: "ExampleEditor" },
     { id: "org.example.Flatpak", name: "Flatpak", icon: "flatpak", startupClass: "" },
-    { id: "xterm-app", name: "XTerm", icon: "terminal", startupClass: "XTermClass" }
+    { id: "xterm-app", name: "XTerm", icon: "terminal", startupClass: "XTermClass" },
+    { id: "steam", name: "Steam", icon: "steam", startupClass: "" },
+    { id: "steam_app_123", name: "Jogo", icon: "game", startupClass: "" },
+    { id: "org.example.Browser", name: "Navegador", icon: "browser", startupClass: "" },
+    { id: "org.example.WebApp", name: "Aplicação web", icon: "web", startupClass: "" },
+    { id: "ClassMatch", name: "Classe", icon: "class", startupClass: "" },
+    { id: "instance-match", name: "Instância", icon: "instance", startupClass: "" }
 ];
 
 function treeFixture() {
@@ -46,6 +52,8 @@ test("confident identities group and unresolved windows remain separate despite 
     assert.equal(groups.find(group => group.key === "desktop:org.example.Editor").windows.length, 2);
     assert.equal(groups.filter(group => group.key.startsWith("unresolved:")).length, 2);
     assert.equal(groups.find(group => group.key === "desktop:xterm-app").windows.length, 1);
+    assert.equal(groups.find(group => group.key === "unresolved:12").displayName, "Mesmo título");
+    assert.equal(groups.find(group => group.key === "unresolved:12").icon, "application-x-executable");
 });
 
 test("manual rules use exact all-field matching and declaration order", () => {
@@ -67,6 +75,32 @@ test("sandbox id precedes app id and StartupWMClass resolves XWayland", () => {
     assert.equal(flatpak.source, "sandbox_app_id");
     assert.equal(xwayland.key, "desktop:xterm-app");
     assert.equal(xwayland.source, "startup_wm_class");
+});
+
+test("Steam, web applications, portable programs, class, instance and missing entries follow explicit identities", () => {
+    const steam = Navigation.resolveIdentity({ id: 1, sandboxAppId: "", appId: "steam", wmClass: "", wmInstance: "" }, catalog, []);
+    const game = Navigation.resolveIdentity({ id: 2, sandboxAppId: "", appId: "steam_app_123", wmClass: "", wmInstance: "" }, catalog, []);
+    const browserTab = Navigation.resolveIdentity({ id: 3, sandboxAppId: "", appId: "org.example.Browser", wmClass: "", wmInstance: "" }, catalog, []);
+    const installedWebApp = Navigation.resolveIdentity({ id: 4, sandboxAppId: "", appId: "org.example.WebApp", wmClass: "", wmInstance: "" }, catalog, []);
+    const portable = Navigation.resolveIdentity({ id: 5, sandboxAppId: "", appId: "portable-app", wmClass: "Portable", wmInstance: "main" }, catalog, [
+        { app_id: "portable-app", name: "AppImage portátil", icon: "portable" }
+    ]);
+    const classMatch = Navigation.resolveIdentity({ id: 6, sandboxAppId: "", appId: "", wmClass: "ClassMatch", wmInstance: "instance-match" }, catalog, []);
+    const instanceMatch = Navigation.resolveIdentity({ id: 7, sandboxAppId: "", appId: "", wmClass: "missing-class", wmInstance: "instance-match" }, catalog, []);
+    const missing = Navigation.resolveIdentity({ id: 8, sandboxAppId: "", appId: "missing.desktop", wmClass: "", wmInstance: "" }, catalog, []);
+
+    assert.equal(steam.key, "desktop:steam");
+    assert.equal(game.key, "desktop:steam_app_123");
+    assert.notEqual(steam.key, game.key);
+    assert.equal(browserTab.key, "desktop:org.example.Browser");
+    assert.equal(installedWebApp.key, "desktop:org.example.WebApp");
+    assert.notEqual(browserTab.key, installedWebApp.key);
+    assert.equal(portable.name, "AppImage portátil");
+    assert.equal(portable.source, "manual");
+    assert.equal(classMatch.source, "wm_class");
+    assert.equal(instanceMatch.source, "wm_instance");
+    assert.equal(missing.source, "unresolved");
+    assert.equal(missing.key, "unresolved:8");
 });
 
 test("explicit transient relationship inherits the parent group", () => {

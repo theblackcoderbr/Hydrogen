@@ -1,0 +1,2 @@
+module qs.providers.desktop
+DesktopEntriesProvider 1.0 DesktopEntriesProvider.qml

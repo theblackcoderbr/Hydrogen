@@ -26,6 +26,14 @@ TestCase {
             },
             bar: {
                 height: 12
+            },
+            terminal: {
+                command: "foot"
+            },
+            launcher: {
+                result_limit: 21,
+                history_limit: 0,
+                history_days: 366
             }
         }, defaults);
         verify(result.ok);
@@ -33,7 +41,11 @@ TestCase {
         compare(result.effective.general.secret_option, undefined);
         compare(result.effective.persistence.write_debounce_ms, 250);
         compare(result.effective.bar.height, 44);
-        compare(result.warnings.length, 3);
+        compare(result.effective.terminal.command.length, 0);
+        compare(result.effective.launcher.result_limit, 20);
+        compare(result.effective.launcher.history_limit, 100);
+        compare(result.effective.launcher.history_days, 30);
+        compare(result.warnings.length, 7);
     }
 
     function test_errorRegistry() {

@@ -34,6 +34,7 @@ find_tool() {
 sway_bin="$(find_tool sway)"
 swaymsg_bin="$(find_tool swaymsg)"
 qs_bin="$(find_tool qs)"
+wtype_bin="$(find_tool wtype)"
 
 json_value() {
     local expression="$1"
@@ -44,12 +45,13 @@ export XDG_CONFIG_HOME="$test_root/config"
 export XDG_STATE_HOME="$test_root/state"
 export XDG_CACHE_HOME="$test_root/cache"
 export XDG_DATA_HOME="$test_root/data"
+export XDG_DATA_DIRS="$test_root/system-data"
 export XDG_RUNTIME_DIR="$test_root/runtime"
 export WLR_BACKENDS=headless
 export WLR_HEADLESS_OUTPUTS=2
 export WLR_LIBINPUT_NO_DEVICES=1
 export WLR_RENDERER=pixman
-mkdir -p "$XDG_CONFIG_HOME" "$XDG_STATE_HOME" "$XDG_CACHE_HOME" "$XDG_DATA_HOME/applications" "$XDG_RUNTIME_DIR"
+mkdir -p "$XDG_CONFIG_HOME" "$XDG_STATE_HOME" "$XDG_CACHE_HOME" "$XDG_DATA_HOME/applications" "$XDG_DATA_DIRS" "$XDG_RUNTIME_DIR"
 chmod 0700 "$XDG_RUNTIME_DIR"
 mkdir -p "$XDG_STATE_HOME/hydrogen"
 chmod 0700 "$XDG_STATE_HOME/hydrogen"
@@ -72,6 +74,25 @@ write_desktop_entry() {
 write_desktop_entry org.test.Group "Grupo de teste"
 write_desktop_entry org.test.Urgent "Aplicativo urgente"
 write_desktop_entry xterm-app "XTerm de teste" XTermClass
+
+write_launcher_entry() {
+    local id="$1"
+    local name="$2"
+    local command="$3"
+    local terminal="${4:-false}"
+    local no_display="${5:-false}"
+    printf '[Desktop Entry]\nType=Application\nName=%s\nExec=%s\nIcon=application-x-executable\nTerminal=%s\nNoDisplay=%s\n' \
+        "$name" "$command" "$terminal" "$no_display" >"$XDG_DATA_HOME/applications/$id.desktop"
+}
+
+common_marker="$test_root/common-launched"
+terminal_marker="$test_root/terminal-launched"
+write_launcher_entry org.test.Common "Hydrogen Common" "touch $common_marker"
+write_launcher_entry org.test.Flatpak "Hydrogen Flatpak" true
+write_launcher_entry steam_app_123 "Hydrogen Steam" true
+write_launcher_entry org.test.Terminal "Hydrogen Terminal" "touch $terminal_marker" true
+write_launcher_entry org.test.Broken "Hydrogen Broken" hydrogen-command-that-does-not-exist
+write_launcher_entry org.test.Hidden "Hydrogen Hidden" true false true
 
 "$sway_bin" -c "$project_root/tests/system/sway-headless.conf" -d >"$test_root/sway.log" 2>&1 &
 sway_pid=$!
@@ -130,6 +151,7 @@ done
 [[ "$(json_value 'value.data.panel' <<<"$status_json")" == "launcher" ]]
 [[ "$(json_value 'value.data.panel_output' <<<"$status_json")" == "$focused_output" ]]
 [[ "$(json_value 'value.data.overlay_surface_count' <<<"$status_json")" -eq 1 ]]
+[[ "$(json_value 'value.data.launcher_application_count' <<<"$status_json")" -eq 8 ]]
 
 if [[ "$focused_output" == "HEADLESS-1" ]]; then
     other_output="HEADLESS-2"
@@ -155,6 +177,54 @@ for _ in {1..50}; do
 done
 [[ "$(json_value 'value.data.panel' <<<"$status_json")" == "null" ]]
 
+"$qs_bin" -p "$project_root/hydrogen" ipc call hydrogen.v1 panel open >/dev/null
+for _ in {1..50}; do
+    status_json="$("$qs_bin" -p "$project_root/hydrogen" ipc call hydrogen.v1 status 2>/dev/null || true)"
+    [[ "$(json_value 'value.data.panel' <<<"$status_json")" == "launcher" ]] && break
+    sleep 0.1
+done
+"$wtype_bin" -s 250 "Hydrogen Common" -k Return
+for _ in {1..80}; do
+    status_json="$("$qs_bin" -p "$project_root/hydrogen" ipc call hydrogen.v1 status 2>/dev/null || true)"
+    [[ -f "$common_marker" && "$(json_value 'value.data.panel' <<<"$status_json")" == "null" ]] && break
+    sleep 0.1
+done
+[[ -f "$common_marker" ]]
+[[ "$(json_value 'value.data.launcher_history_count' <<<"$status_json")" -eq 1 ]]
+
+"$qs_bin" -p "$project_root/hydrogen" ipc call hydrogen.v1 panel open >/dev/null
+for _ in {1..50}; do
+    status_json="$("$qs_bin" -p "$project_root/hydrogen" ipc call hydrogen.v1 status 2>/dev/null || true)"
+    [[ "$(json_value 'value.data.panel' <<<"$status_json")" == "launcher" ]] && break
+    sleep 0.1
+done
+"$wtype_bin" -s 250 "Hydrogen Terminal" -k Return
+for _ in {1..100}; do
+    status_json="$("$qs_bin" -p "$project_root/hydrogen" ipc call hydrogen.v1 status 2>/dev/null || true)"
+    [[ -f "$terminal_marker" && "$(json_value 'value.data.panel' <<<"$status_json")" == "null" ]] && break
+    sleep 0.1
+done
+[[ -f "$terminal_marker" ]]
+[[ "$(json_value 'value.data.launcher_history_count' <<<"$status_json")" -eq 2 ]]
+
+launcher_error_count="$(json_value 'value.data.actionable_error_count' <<<"$status_json")"
+"$qs_bin" -p "$project_root/hydrogen" ipc call hydrogen.v1 panel open >/dev/null
+for _ in {1..50}; do
+    status_json="$("$qs_bin" -p "$project_root/hydrogen" ipc call hydrogen.v1 status 2>/dev/null || true)"
+    [[ "$(json_value 'value.data.panel' <<<"$status_json")" == "launcher" ]] && break
+    sleep 0.1
+done
+"$wtype_bin" -s 250 "Hydrogen Broken" -k Return
+for _ in {1..80}; do
+    status_json="$("$qs_bin" -p "$project_root/hydrogen" ipc call hydrogen.v1 status 2>/dev/null || true)"
+    [[ "$(json_value 'value.data.actionable_error_count' <<<"$status_json")" -eq $((launcher_error_count + 1)) ]] && break
+    sleep 0.1
+done
+[[ "$(json_value 'value.data.panel' <<<"$status_json")" == "launcher" ]]
+[[ "$(json_value 'value.data.actionable_error_count' <<<"$status_json")" -eq $((launcher_error_count + 1)) ]]
+persistent_error_count=$((launcher_error_count + 1))
+"$qs_bin" -p "$project_root/hydrogen" ipc call hydrogen.v1 panel close >/dev/null
+
 "$swaymsg_bin" output HEADLESS-2 disable >/dev/null
 for _ in {1..80}; do
     status_json="$("$qs_bin" -p "$project_root/hydrogen" ipc call hydrogen.v1 status 2>/dev/null || true)"
@@ -169,7 +239,7 @@ for _ in {1..80}; do
     sleep 0.1
 done
 [[ "$status_json" == *'"surface_count":2'* ]]
-[[ "$status_json" == *'"actionable_error_count":1'* ]]
+[[ "$(json_value 'value.data.actionable_error_count' <<<"$status_json")" -eq "$persistent_error_count" ]]
 [[ -f "$XDG_CONFIG_HOME/hydrogen/config.toml" ]]
 [[ -f "$XDG_CONFIG_HOME/hydrogen/config.example.toml" ]]
 for component in appearance bar integrations launcher notifications osd; do
@@ -188,20 +258,20 @@ done
 printf '[appearance]\nopacity = invalid-value\n' >"$appearance_file"
 for _ in {1..50}; do
     status_json="$("$qs_bin" -p "$project_root/hydrogen" ipc call hydrogen.v1 status 2>/dev/null || true)"
-    [[ "$status_json" == *'"actionable_error_count":2'* ]] && break
+    [[ "$(json_value 'value.data.actionable_error_count' <<<"$status_json")" -eq $((persistent_error_count + 1)) ]] && break
     sleep 0.1
 done
 [[ "$status_json" == *'"configuration_generation":2'* ]]
-[[ "$status_json" == *'"actionable_error_count":2'* ]]
+[[ "$(json_value 'value.data.actionable_error_count' <<<"$status_json")" -eq $((persistent_error_count + 1)) ]]
 
 printf '[appearance]\nopacity = 0.80\nanimation_duration_ms = 150\n' >"$appearance_file"
 for _ in {1..50}; do
     status_json="$("$qs_bin" -p "$project_root/hydrogen" ipc call hydrogen.v1 status 2>/dev/null || true)"
-    [[ "$status_json" == *'"configuration_generation":3'* && "$status_json" == *'"actionable_error_count":1'* ]] && break
+    [[ "$status_json" == *'"configuration_generation":3'* && "$(json_value 'value.data.actionable_error_count' <<<"$status_json")" -eq "$persistent_error_count" ]] && break
     sleep 0.1
 done
 [[ "$status_json" == *'"configuration_generation":3'* ]]
-[[ "$status_json" == *'"actionable_error_count":1'* ]]
+[[ "$(json_value 'value.data.actionable_error_count' <<<"$status_json")" -eq "$persistent_error_count" ]]
 
 rm "$appearance_file"
 for _ in {1..50}; do
@@ -228,6 +298,7 @@ spawn_foot() {
     app_pids+=("$!")
 }
 
+"$swaymsg_bin" output HEADLESS-1 mode 640x480 >/dev/null
 "$swaymsg_bin" workspace 1 >/dev/null
 spawn_foot org.test.Group "Documento A"
 spawn_foot org.test.Group "Documento B"
@@ -294,6 +365,10 @@ for state_file in state.json launcher-history.json notification-history.json; do
     done
     [[ "$state_mode" == "600" ]]
 done
+launcher_history_json="$(<"$XDG_STATE_HOME/hydrogen/launcher-history.json")"
+[[ "$(json_value 'value.schema_version' <<<"$launcher_history_json")" -eq 1 ]]
+[[ "$(json_value 'value.items.length' <<<"$launcher_history_json")" -eq 2 ]]
+[[ "$(json_value 'value.items.every(item => item.kind === "application" && ["org.test.Common", "org.test.Terminal"].includes(item.desktop_entry))' <<<"$launcher_history_json")" == "true" ]]
 corrupt_copy_count=""
 for _ in {1..50}; do
     corrupt_copy_count="$(find "$XDG_STATE_HOME/hydrogen" -name 'state.corrupt-*.json' -type f | wc -l)"
@@ -320,4 +395,4 @@ fi
 wait "$hydrogen_pid" || true
 hydrogen_pid=""
 
-echo "PASS: Hydrogen validated bars, overlays, hotplug, Wayland/XWayland discovery, grouping, unresolved identities, urgency, overflow pressure, and shutdown."
+echo "PASS: Hydrogen validated application launch, terminal wrapping, actionable failures, history, bars, overlays, hotplug, window navigation, and shutdown."

@@ -10,6 +10,7 @@ import "domain" as Domain
 import "config" as Config
 import "persistence" as Persistence
 import "providers/sway" as Sway
+import "providers/desktop" as Desktop
 import "features/panel" as Panel
 import "diagnostics" as Diagnostics
 import "ipc" as Ipc
@@ -43,6 +44,10 @@ ShellRoot {
     Domain.WindowStore {
         id: windowStore
     }
+    Domain.LauncherStore {
+        id: launcherStore
+        resultLimit: configuration.effective.launcher.result_limit
+    }
     Domain.CapabilitiesStore {
         id: capabilities
     }
@@ -60,6 +65,16 @@ ShellRoot {
         lifecycle: lifecycle
         swayProvider: swayProvider
     }
+    Domain.LauncherController {
+        id: launcherController
+        lifecycle: lifecycle
+        configuration: configuration
+        launcherStore: launcherStore
+        provider: desktopEntriesProvider
+        overlayCoordinator: overlayCoordinator
+        errors: errors
+        logger: logger
+    }
 
     Diagnostics.Logger {
         id: logger
@@ -69,6 +84,7 @@ ShellRoot {
     Persistence.StateRepository {
         id: persistence
         errors: errors
+        launcherStore: launcherStore
         onRestored: foundationController.persistenceRestored()
         onFlushed: success => {
             if (root.shutdownFlushRequested)
@@ -93,6 +109,10 @@ ShellRoot {
         onReady: foundationController.swayReady()
         onFailed: code => foundationController.swayFailed(code)
         onCompositorExited: foundationController.requestShutdown("compositor_exit")
+    }
+    Desktop.DesktopEntriesProvider {
+        id: desktopEntriesProvider
+        store: launcherStore
     }
 
     Domain.FoundationController {
@@ -134,6 +154,7 @@ ShellRoot {
         configuration: configuration
         sway: swayStore
         windowStore: windowStore
+        launcherStore: launcherStore
         errors: errors
         capabilities: capabilities
         persistence: persistence
@@ -185,6 +206,8 @@ ShellRoot {
         Panel.LauncherSurface {
             configuration: configuration
             overlayCoordinator: overlayCoordinator
+            launcherStore: launcherStore
+            launcherController: launcherController
             Component.onCompleted: root.overlaySurfaceCount += 1
             Component.onDestruction: root.overlaySurfaceCount = Math.max(0, root.overlaySurfaceCount - 1)
         }

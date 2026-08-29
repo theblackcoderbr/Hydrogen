@@ -182,8 +182,10 @@ function groupWindows(windows, output, workspaceName, orderKeys) {
             byKey[key] = {
                 key: key,
                 name: window.identity.name,
+                displayName: window.identity.confident ? window.identity.name : window.title,
                 icon: window.identity.icon,
                 desktopEntry: window.identity.desktopEntry,
+                confident: window.identity.confident,
                 windows: [],
                 focused: false,
                 urgent: false

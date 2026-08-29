@@ -76,6 +76,14 @@ function boundedInteger(value, minimum, maximum, fallback, key, warnings) {
     return value;
 }
 
+function stringArray(value, fallback, key, warnings) {
+    if (!Array.isArray(value) || !value.every(function(item) { return typeof item === "string" && item !== ""; })) {
+        warnings.push({ code: "invalid_value", key: key });
+        return deepClone(fallback);
+    }
+    return value.slice();
+}
+
 function validateConfiguration(candidate, defaults) {
     var warnings = [];
     var effective = mergeKnown(defaults, candidate || {}, "", warnings);
@@ -91,6 +99,16 @@ function validateConfiguration(candidate, defaults) {
     effective.bar.height = boundedInteger(
         effective.bar.height, 28, 96,
         defaults.bar.height, "bar.height", warnings);
+    effective.terminal.command = stringArray(effective.terminal.command, defaults.terminal.command, "terminal.command", warnings);
+    effective.launcher.result_limit = boundedInteger(
+        effective.launcher.result_limit, 1, 20,
+        defaults.launcher.result_limit, "launcher.result_limit", warnings);
+    effective.launcher.history_limit = boundedInteger(
+        effective.launcher.history_limit, 1, 100,
+        defaults.launcher.history_limit, "launcher.history_limit", warnings);
+    effective.launcher.history_days = boundedInteger(
+        effective.launcher.history_days, 1, 365,
+        defaults.launcher.history_days, "launcher.history_days", warnings);
     return { ok: true, effective: effective, warnings: warnings };
 }
 
@@ -179,6 +197,9 @@ function statusSnapshot(context) {
         unresolved_window_count: Number(context.unresolvedWindowCount || 0),
         xwayland_window_count: Number(context.xwaylandWindowCount || 0),
         urgent_window_count: Number(context.urgentWindowCount || 0),
+        launcher_application_count: Number(context.launcherApplicationCount || 0),
+        launcher_history_count: Number(context.launcherHistoryCount || 0),
+        launcher_result_count: Number(context.launcherResultCount || 0),
         providers: (context.providers || []).map(sanitizeProvider),
         actionable_error_count: (context.errors || []).filter(function(error) {
             return !error.recovered && !error.dismissed;

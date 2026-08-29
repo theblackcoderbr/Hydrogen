@@ -57,6 +57,7 @@ pkgs.mkShell {
     swayPkgs.sway-unwrapped
     xterm
     xwayland
+    wtype
   ];
 
   shellHook = ''

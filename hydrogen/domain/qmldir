@@ -6,4 +6,6 @@ FoundationController 1.0 FoundationController.qml
 OverlayStore 1.0 OverlayStore.qml
 OverlayCoordinator 1.0 OverlayCoordinator.qml
 WindowStore 1.0 WindowStore.qml
+LauncherStore 1.0 LauncherStore.qml
+LauncherController 1.0 LauncherController.qml
 WindowNavigationController 1.0 WindowNavigationController.qml

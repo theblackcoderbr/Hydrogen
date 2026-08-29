@@ -19,7 +19,7 @@ PanelWindow {
     readonly property var currentWorkspace: root.swayStore.workspaces.find(workspace => workspace.output === root.modelData.name && (workspace.focused || workspace.active)) || null
     readonly property var workspaceItems: Navigation.visibleWorkspaces(root.swayStore.workspaces, root.windowStore.windows, root.modelData.name)
     readonly property var appGroups: root.currentWorkspace ? root.windowStore.groups(root.modelData.name, root.currentWorkspace.name) : []
-    readonly property int groupCapacity: Math.max(1, Math.min(10, Math.floor(centerSection.width / 42)))
+    readonly property int groupCapacity: Math.max(1, Math.floor(centerSection.width / 42))
     readonly property var groupSplit: Navigation.splitOverflow(root.appGroups, root.groupCapacity)
     property string clockText: Panel.formatClock(new Date())
 

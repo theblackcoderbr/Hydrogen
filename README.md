@@ -1,10 +1,10 @@
 # Hydrogen
 
-Hydrogen é um shell tradicional e leve para Sway, construído com Quickshell. O desenvolvimento segue sequencialmente os marcos definidos em `Especificacao_Inicial_Hydrogen_0.1.md`; o repositório contém atualmente o **Marco 3 — Navegação de janelas**, pronto para verificação independente.
+Hydrogen é um shell tradicional e leve para Sway, construído com Quickshell. O desenvolvimento segue sequencialmente os marcos definidos em `Especificacao_Inicial_Hydrogen_0.1.md`; o repositório contém atualmente o **Marco 4 — Launcher de aplicativos**, pronto para verificação independente.
 
 ## Estado atual
 
-Além da fundação e do painel básico já aprovados, o Marco 3 entrega:
+Além da fundação, do painel básico e da navegação de janelas já aprovados, o Marco 4 entrega:
 
 - uma barra por saída com workspaces reais e aplicativos do workspace visível;
 - descoberta de janelas Wayland e XWayland pelo IPC binário do Sway, sem depender de `swaymsg` em produção;
@@ -14,12 +14,18 @@ Além da fundação e do painel básico já aprovados, o Marco 3 entrega:
 - overflow que preserva o aplicativo ativo sempre que possível;
 - workspaces por saída com clique, clique do meio e navegação circular pela roda;
 - um único overlay principal compartilhado por launcher, grupos e overflow.
+- catálogo de aplicativos baseado em Desktop Entries, respeitando `NoDisplay`;
+- pesquisa por nome e metadados sem distinguir maiúsculas ou acentos;
+- ranking determinístico por qualidade do nome, frequência e recência, limitado a 20 resultados;
+- lista vazia preenchida somente pelos aplicativos efetivamente mais usados;
+- execução por argumentos estruturados, incluindo `Terminal=true` com terminal configurado ou seleção automática;
+- histórico persistente, limitado e podado, além de falhas acionáveis que mantêm o launcher aberto.
 
-A pesquisa do launcher continua deliberadamente indisponível até o Marco 4. Indicadores, painéis contextuais e demais recursos pertencem aos marcos posteriores.
+A pesquisa de arquivos, o modo de comandos e as ações internas continuam deliberadamente indisponíveis até o Marco 5. Indicadores, painéis contextuais e demais recursos pertencem aos marcos posteriores.
 
 ## Ambiente de desenvolvimento e testes
 
-O `shell.nix` é a fonte normativa da toolchain. Ele fixa as revisões do `nixpkgs`, Quickshell 0.3.1, Qt 6.10.1 e Sway 1.12, além de fornecer Node.js e Python para os testes e para o bridge IPC. `foot`, XTerm e Xwayland são usados exclusivamente na demonstração isolada do Marco 3.
+O `shell.nix` é a fonte normativa da toolchain. Ele fixa as revisões do `nixpkgs`, Quickshell 0.3.1, Qt 6.10.1 e Sway 1.12, além de fornecer Node.js e Python para os testes, bridges estruturados e launcher. `foot`, XTerm, Xwayland e `wtype` são usados na demonstração headless isolada.
 
 Entre no ambiente antes de desenvolver, executar ou testar:
 
@@ -33,7 +39,7 @@ Para executar diretamente a árvore de desenvolvimento em uma sessão Sway:
 qs -p ./hydrogen
 ```
 
-O Hydrogen não modifica a configuração do Sway e não executa argumentos de navegação por meio de shell.
+O Hydrogen não modifica a configuração do Sway. Comandos de navegação e Desktop Entries são iniciados como vetores de argumentos, nunca como texto bruto entregue a um shell.
 
 ## Verificação
 
@@ -51,6 +57,6 @@ Para etapas individuais, entre primeiro em `nix-shell --pure` e use:
 ./scripts/test-system.sh
 ```
 
-`test-unit.sh` executa Qt Quick Test, Node.js e os testes do protocolo Python. `test-system.sh` isola integralmente os diretórios XDG, inicia duas saídas Sway headless e cria clientes Wayland/XWayland descartáveis para validar descoberta, agrupamento, regras, urgência, overflow e hotplug.
+`test-unit.sh` executa Qt Quick Test, Node.js e testes Python dos bridges. `test-system.sh` isola integralmente os diretórios XDG, incluindo o catálogo de Desktop Entries, inicia duas saídas Sway headless e valida busca/ativação por teclado, terminal, falha inexequível, histórico, navegação de janelas e hotplug.
 
 Os relatórios e a matriz de evidências ficam em `docs/reports/` e [docs/requirements-tests.md](docs/requirements-tests.md).

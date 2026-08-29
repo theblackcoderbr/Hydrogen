@@ -18,14 +18,20 @@ test("configuration ignores unknown options and restores invalid ranges", () => 
     const result = Foundation.validateConfiguration({
         general: { debug: true, secret_option: "ignored" },
         persistence: { write_debounce_ms: -1 },
-        bar: { height: 12 }
+        bar: { height: 12 },
+        terminal: { command: "foot" },
+        launcher: { result_limit: 21, history_limit: 0, history_days: 366 }
     }, defaults);
     assert.equal(result.ok, true);
     assert.equal(result.effective.general.debug, true);
     assert.equal(result.effective.general.secret_option, undefined);
     assert.equal(result.effective.persistence.write_debounce_ms, 250);
     assert.equal(result.effective.bar.height, 44);
-    assert.deepEqual(Array.from(result.warnings, warning => warning.code).sort(), ["invalid_range", "invalid_range", "unknown_option"]);
+    assert.deepEqual(Array.from(result.effective.terminal.command), []);
+    assert.equal(result.effective.launcher.result_limit, 20);
+    assert.equal(result.effective.launcher.history_limit, 100);
+    assert.equal(result.effective.launcher.history_days, 30);
+    assert.deepEqual(Array.from(result.warnings, warning => warning.code).sort(), ["invalid_range", "invalid_range", "invalid_range", "invalid_range", "invalid_range", "invalid_type", "unknown_option"]);
 });
 
 test("error registry deduplicates, counts, recovers and respects its bound", () => {

@@ -16,4 +16,4 @@ fi
 QT_QPA_PLATFORM=offscreen QML_IMPORT_PATH="$PWD/hydrogen${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}" \
     "$qml_test_runner" -input tests/qml
 node --test tests/unit/*.test.mjs
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests/unit/test_sway_bridge.py
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests/unit/test_sway_bridge.py tests/unit/test_desktop_entry_runner.py

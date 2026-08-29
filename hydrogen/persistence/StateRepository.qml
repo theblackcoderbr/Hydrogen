@@ -3,20 +3,30 @@ import Qt.labs.folderlistmodel
 import Quickshell
 import Quickshell.Io
 import "../logic/Foundation.js" as Foundation
+import "../logic/Launcher.js" as Launcher
 
 QtObject {
     id: root
 
     required property var errors
+    required property var launcherStore
     property string stateRoot: Quickshell.stateDir
     property int schemaVersion: 1
     property string state: "initializing"
     property bool doNotDisturb: false
     property bool dirty: false
     property bool writePending: false
+    property bool launcherDirty: false
+    property bool launcherWritePending: false
+    property bool launcherPersistenceSuspended: false
+    property bool stateLoaded: false
+    property bool launcherLoaded: false
+    property bool restorationEmitted: false
+    property bool flushRequested: false
+    property bool flushSucceeded: true
     property bool persistenceSuspended: false
     property string lastWriteAt: ""
-    property int pendingWrites: writePending ? 1 : 0
+    property int pendingWrites: (writePending ? 1 : 0) + (launcherWritePending ? 1 : 0)
     property string corruptStatePath: ""
     property var corruptRemovalQueue: []
 
@@ -42,7 +52,8 @@ QtObject {
                 root.dirty = true;
                 root.flushNow();
             }
-            root.restored();
+            root.stateLoaded = true;
+            root.maybeRestored();
             return;
         }
         if (parsed.preserve) {
@@ -56,7 +67,8 @@ QtObject {
                 action: "upgrade_hydrogen",
                 message: "O estado usa uma versão incompatível e foi preservado."
             });
-            root.restored();
+            root.stateLoaded = true;
+            root.maybeRestored();
             return;
         }
         root.state = "degraded";
@@ -83,20 +95,71 @@ QtObject {
         writeDebounce.restart();
     }
 
+    function maybeRestored() {
+        if (!root.restorationEmitted && root.stateLoaded && root.launcherLoaded) {
+            root.restorationEmitted = true;
+            root.restored();
+        }
+    }
+
+    function applyLauncherText(text) {
+        const parsed = Launcher.parseHistory(text, root.schemaVersion);
+        if (parsed.ok) {
+            root.launcherStore.restoreHistory(parsed.items);
+            root.launcherLoaded = true;
+            if (parsed.empty) {
+                root.launcherDirty = true;
+                launcherWriteDebounce.restart();
+            }
+            root.maybeRestored();
+            return;
+        }
+        root.launcherStore.restoreHistory([]);
+        root.launcherLoaded = true;
+        root.launcherPersistenceSuspended = Boolean(parsed.preserve);
+        root.errors.add({
+            code: parsed.code,
+            category: "hydrogen.persistence",
+            severity: "warning",
+            component: "launcher_history",
+            action: parsed.preserve ? "upgrade_hydrogen" : "inspect_launcher_history",
+            message: parsed.preserve ? "O histórico do launcher usa uma versão incompatível e foi preservado." : "O histórico do launcher estava inválido e foi reiniciado."
+        });
+        if (!parsed.preserve) {
+            root.launcherDirty = true;
+            root.launcherWriteDebounce.restart();
+        }
+        root.maybeRestored();
+    }
+
     function flushNow() {
         writeDebounce.stop();
-        if (root.persistenceSuspended) {
-            root.flushed(false);
-            return;
+        launcherWriteDebounce.stop();
+        root.flushRequested = true;
+        root.flushSucceeded = true;
+        if (root.dirty && !root.persistenceSuspended) {
+            root.writePending = true;
+            stateFile.setText(Foundation.serializeState({
+                do_not_disturb: root.doNotDisturb
+            }, new Date().toISOString()));
+        } else if (root.dirty) {
+            root.flushSucceeded = false;
         }
-        if (!root.dirty) {
-            root.flushed(true);
-            return;
+        if (root.launcherDirty && !root.launcherPersistenceSuspended) {
+            root.launcherWritePending = true;
+            launcherFile.setText(Launcher.serializeHistory(root.launcherStore.history, new Date().toISOString()));
+        } else if (root.launcherDirty) {
+            root.flushSucceeded = false;
         }
-        root.writePending = true;
-        stateFile.setText(Foundation.serializeState({
-            do_not_disturb: root.doNotDisturb
-        }, new Date().toISOString()));
+        root.finishFlushIfReady();
+    }
+
+    function finishFlushIfReady() {
+        if (!root.flushRequested || root.writePending || root.launcherWritePending)
+            return;
+        const success = root.flushSucceeded;
+        root.flushRequested = false;
+        root.flushed(success);
     }
 
     function pruneCorruptCopies() {
@@ -130,7 +193,9 @@ QtObject {
                     action: "check_permissions",
                     message: "Não foi possível preparar o diretório de estado."
                 });
-                root.restored();
+                root.stateLoaded = true;
+                root.launcherLoaded = true;
+                root.maybeRestored();
                 return;
             }
             root.permissions.exec(["chmod", "0700", root.stateRoot]);
@@ -141,7 +206,9 @@ QtObject {
         onExited: exitCode => {
             if (exitCode !== 0) {
                 root.state = "failed";
-                root.restored();
+                root.stateLoaded = true;
+                root.launcherLoaded = true;
+                root.maybeRestored();
                 return;
             }
             root.touchFiles.exec(["touch", root.stateRoot + "/state.json", root.stateRoot + "/launcher-history.json", root.stateRoot + "/notification-history.json"]);
@@ -152,7 +219,9 @@ QtObject {
         onExited: exitCode => {
             if (exitCode !== 0) {
                 root.state = "failed";
-                root.restored();
+                root.stateLoaded = true;
+                root.launcherLoaded = true;
+                root.maybeRestored();
                 return;
             }
             root.initialFilePermissions.exec(["chmod", "0600", root.stateRoot + "/state.json", root.stateRoot + "/launcher-history.json", root.stateRoot + "/notification-history.json"]);
@@ -163,7 +232,9 @@ QtObject {
         onExited: exitCode => {
             if (exitCode !== 0) {
                 root.state = "failed";
-                root.restored();
+                root.stateLoaded = true;
+                root.launcherLoaded = true;
+                root.maybeRestored();
                 return;
             }
             root.loadState();
@@ -175,12 +246,14 @@ QtObject {
             if (exitCode !== 0) {
                 root.persistenceSuspended = true;
                 root.state = "failed";
-                root.restored();
+                root.stateLoaded = true;
+                root.maybeRestored();
                 return;
             }
             root.corruptRetentionDebounce.restart();
             root.flushNow();
-            root.restored();
+            root.stateLoaded = true;
+            root.maybeRestored();
         }
     }
 
@@ -212,7 +285,8 @@ QtObject {
             root.doNotDisturb = false;
             root.dirty = true;
             root.flushNow();
-            root.restored();
+            root.stateLoaded = true;
+            root.maybeRestored();
         }
         onSaved: {
             root.dirty = false;
@@ -220,10 +294,11 @@ QtObject {
             root.lastWriteAt = new Date().toISOString();
             root.statePermissions.command = ["chmod", "0600", root.stateRoot + "/state.json"];
             root.statePermissions.running = true;
-            root.flushed(true);
+            root.finishFlushIfReady();
         }
         onSaveFailed: error => {
             root.writePending = false;
+            root.flushSucceeded = false;
             root.state = "degraded";
             root.errors.add({
                 code: "state_write_failed",
@@ -233,7 +308,7 @@ QtObject {
                 action: "check_permissions",
                 message: "Não foi possível gravar o estado; a memória foi preservada."
             });
-            root.flushed(false);
+            root.finishFlushIfReady();
         }
     }
 
@@ -241,22 +316,27 @@ QtObject {
         atomicWrites: true
         blockWrites: false
         printErrors: false
-        onLoaded: {
-            if (text().trim() === "")
-                setText(JSON.stringify({
-                    schema_version: 1,
-                    updated_at: new Date().toISOString(),
-                    items: []
-                }));
-        }
-        onLoadFailed: error => setText(JSON.stringify({
-                schema_version: 1,
-                updated_at: new Date().toISOString(),
-                items: []
-            }))
+        onLoaded: root.applyLauncherText(text())
+        onLoadFailed: error => root.applyLauncherText("")
         onSaved: {
+            root.launcherDirty = false;
+            root.launcherWritePending = false;
             root.launcherPermissions.command = ["chmod", "0600", root.stateRoot + "/launcher-history.json"];
             root.launcherPermissions.running = true;
+            root.finishFlushIfReady();
+        }
+        onSaveFailed: error => {
+            root.launcherWritePending = false;
+            root.flushSucceeded = false;
+            root.errors.add({
+                code: "launcher_history_write_failed",
+                category: "hydrogen.persistence",
+                severity: "error",
+                component: "launcher_history",
+                action: "check_permissions",
+                message: "Não foi possível gravar o histórico do launcher; a memória foi preservada."
+            });
+            root.finishFlushIfReady();
         }
     }
 
@@ -291,6 +371,20 @@ QtObject {
         interval: 250
         repeat: false
         onTriggered: root.flushNow()
+    }
+
+    property Timer launcherWriteDebounce: Timer {
+        interval: 250
+        repeat: false
+        onTriggered: root.flushNow()
+    }
+
+    property Connections launcherHistoryConnection: Connections {
+        target: root.launcherStore
+        function onHistoryMutated() {
+            root.launcherDirty = true;
+            root.launcherWriteDebounce.restart();
+        }
     }
 
     property Timer corruptRetentionDebounce: Timer {
