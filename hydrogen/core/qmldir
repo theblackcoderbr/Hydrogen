@@ -1,0 +1,6 @@
+module qs.core
+LifecycleManager 1.0 LifecycleManager.qml
+ErrorRegistry 1.0 ErrorRegistry.qml
+Clock 1.0 Clock.qml
+EventBus 1.0 EventBus.qml
+AppContext 1.0 AppContext.qml

@@ -1,0 +1,2 @@
+module qs.providers.sway
+SwayProvider 1.0 SwayProvider.qml

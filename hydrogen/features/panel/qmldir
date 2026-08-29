@@ -1,0 +1,4 @@
+module qs.features.panel
+BarSurface 1.0 BarSurface.qml
+LauncherSurface 1.0 LauncherSurface.qml
+WindowMenuSurface 1.0 WindowMenuSurface.qml

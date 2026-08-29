@@ -1,0 +1,3 @@
+module qs.providers.fakes
+FakeSwayProvider 1.0 FakeSwayProvider.qml
+FakeClock 1.0 FakeClock.qml

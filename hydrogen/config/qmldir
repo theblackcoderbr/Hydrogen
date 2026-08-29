@@ -1,0 +1,3 @@
+module qs.config
+ConfigurationRepository 1.0 ConfigurationRepository.qml
+ConfigFileReader 1.0 ConfigFileReader.qml

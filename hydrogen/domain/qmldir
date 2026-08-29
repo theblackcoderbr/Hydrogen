@@ -1,0 +1,9 @@
+module qs.domain
+ConfigurationStore 1.0 ConfigurationStore.qml
+SwayStore 1.0 SwayStore.qml
+CapabilitiesStore 1.0 CapabilitiesStore.qml
+FoundationController 1.0 FoundationController.qml
+OverlayStore 1.0 OverlayStore.qml
+OverlayCoordinator 1.0 OverlayCoordinator.qml
+WindowStore 1.0 WindowStore.qml
+WindowNavigationController 1.0 WindowNavigationController.qml

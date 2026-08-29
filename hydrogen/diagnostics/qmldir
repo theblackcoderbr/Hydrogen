@@ -1,0 +1,3 @@
+module qs.diagnostics
+Logger 1.0 Logger.qml
+DiagnosticSnapshot 1.0 DiagnosticSnapshot.qml

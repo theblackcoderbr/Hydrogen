@@ -1,0 +1,2 @@
+module qs.persistence
+StateRepository 1.0 StateRepository.qml
