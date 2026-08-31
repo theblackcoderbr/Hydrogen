@@ -381,9 +381,12 @@ QtObject {
 
     property Connections launcherHistoryConnection: Connections {
         target: root.launcherStore
-        function onHistoryMutated() {
+        function onHistoryMutated(immediate) {
             root.launcherDirty = true;
-            root.launcherWriteDebounce.restart();
+            if (immediate)
+                root.flushNow();
+            else
+                root.launcherWriteDebounce.restart();
         }
     }
 

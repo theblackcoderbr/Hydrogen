@@ -1,4 +1,4 @@
-# Matriz requisito–teste — Marcos 1 a 4
+# Matriz requisito–teste — Marcos 1 a 5
 
 | Requisito | Evidência automatizada |
 |---|---|
@@ -27,6 +27,17 @@
 | `Terminal=true` com terminal configurado/automático | testes Python do wrapper e execução real via `foot` no Sway headless |
 | Entrada inexequível pesquisável, erro acionável e launcher preservado | testes Node/QML e cenário real `Hydrogen Broken` no sistema headless |
 | Histórico de uso persistente, limitado, podado e privado | `launcher.test.mjs`, `StateRepository.qml` e envelope `launcher-history.json` verificado no sistema headless |
+| Busca `fd` somente após três caracteres e apenas em pastas XDG existentes | `tst_launcher.qml`, `test_launcher_backend.py` e diretório Documents isolado no Sway headless |
+| Arquivos/diretórios ocultos excluídos e somente arquivos regulares | fixture real de `fd` em `test_launcher_backend.py` |
+| Cancelamento e descarte de respostas fora de ordem | geração dupla exercitada em `tst_launcher.qml`; mudança de consulta cancela o `Process` real |
+| Aplicativos antes de arquivos e limite global compartilhado de 20 | `launcher.test.mjs` com 25 arquivos e catálogo misto |
+| Caminhos especiais convertidos para URL e abertos pelo manipulador XDG | Python valida `Path.as_uri()`; Sway headless abre espaço, `#` e Unicode por `Qt.openUrlExternally()` |
+| Modo `>`, argumentos com aspas e operadores literais sem shell | `launcher.test.mjs`, `test_launcher_backend.py` e gravador de argumentos real no Sway headless |
+| Modificadores `!`, `_`, `!_` e `_!` | testes Node/QML; comandos privado e de terminal exercitados no Sway headless |
+| Sugestões de ações, histórico e executáveis do `PATH` | `launcher.test.mjs` e varredura isolada em `test_launcher_backend.py` |
+| Ações internas seguras e sessão sem contorno de confirmação | `tst_launcher.qml`; limpeza real pelo teclado; ações destrutivas permanecem indisponíveis até o Marco 6 |
+| Histórico compartilhado, restauração, limites, invalidação e limpeza imediata | testes Node/Python; reinício real 5→5 e limpeza persistida 5→0 no Sway headless |
+| Consultas, comandos e caminhos pessoais ausentes dos logs | falhas QML usam somente operação/código; sentinelas verificadas ausentes nos dois logs headless |
 | Imports e tipos QML | `scripts/lint.sh` com `qmllint` sem avisos |
 
 Todos os comandos completos são descritos no `README.md`. Nenhum teste usa configuração, estado, dados pessoais ou home reais.

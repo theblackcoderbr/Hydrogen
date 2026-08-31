@@ -27,7 +27,7 @@ FocusScope {
         spacing: 12
 
         Text {
-            text: "Aplicativos"
+            text: root.launcherStore.query.indexOf(">") === 0 ? "Comandos e ações" : "Aplicativos e arquivos"
             color: "#f4f7fb"
             font.pixelSize: 21
             font.weight: Font.DemiBold
@@ -65,7 +65,7 @@ FocusScope {
                 anchors.leftMargin: 13
                 anchors.verticalCenter: parent.verticalCenter
                 visible: searchInput.text.length === 0
-                text: "Pesquisar aplicativos"
+                text: "Pesquisar aplicativos e arquivos ou usar >"
                 color: "#aeb9ca"
                 font.pixelSize: 14
             }
@@ -90,7 +90,7 @@ FocusScope {
                 width: Math.min(parent.width, 420)
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.WordWrap
-                text: root.launcherStore.query === "" ? "Nenhum aplicativo usado recentemente." : "Nenhum aplicativo encontrado."
+                text: root.launcherStore.fileSearching ? "Pesquisando arquivos…" : root.launcherStore.query === "" ? "Nenhum item usado recentemente." : "Nenhum resultado encontrado."
                 color: "#aeb9ca"
                 font.pixelSize: 14
             }
@@ -112,7 +112,7 @@ FocusScope {
                     height: 52
                     radius: 8
                     color: ListView.isCurrentItem || resultMouse.containsMouse ? "#3b4960" : "#2d374a"
-                    opacity: root.launcherStore.launching ? 0.6 : 1
+                    opacity: root.launcherStore.launching || resultButton.modelData.available === false ? 0.55 : 1
 
                     Image {
                         anchors.left: parent.left
@@ -153,7 +153,7 @@ FocusScope {
                         enabled: !root.launcherStore.launching
                         onClicked: {
                             results.currentIndex = resultButton.index;
-                            root.launcherController.launch(resultButton.modelData);
+                            root.launcherController.activate(resultButton.modelData);
                         }
                     }
                 }
@@ -168,7 +168,7 @@ FocusScope {
 
     function activateCurrent() {
         if (!root.launcherStore.launching && results.currentIndex >= 0)
-            root.launcherController.launch(root.launcherStore.results[results.currentIndex]);
+            root.launcherController.activate(root.launcherStore.results[results.currentIndex]);
     }
 
     function focusSearch() {

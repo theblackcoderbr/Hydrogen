@@ -11,6 +11,7 @@ import "config" as Config
 import "persistence" as Persistence
 import "providers/sway" as Sway
 import "providers/desktop" as Desktop
+import "providers/launcher" as Launcher
 import "features/panel" as Panel
 import "diagnostics" as Diagnostics
 import "ipc" as Ipc
@@ -71,7 +72,10 @@ ShellRoot {
         configuration: configuration
         launcherStore: launcherStore
         provider: desktopEntriesProvider
+        launcherBackend: launcherBackend
         overlayCoordinator: overlayCoordinator
+        foundationController: foundationController
+        persistence: persistence
         errors: errors
         logger: logger
     }
@@ -113,6 +117,9 @@ ShellRoot {
     Desktop.DesktopEntriesProvider {
         id: desktopEntriesProvider
         store: launcherStore
+    }
+    Launcher.LauncherBackend {
+        id: launcherBackend
     }
 
     Domain.FoundationController {

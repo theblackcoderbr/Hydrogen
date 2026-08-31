@@ -35,6 +35,7 @@ sway_bin="$(find_tool sway)"
 swaymsg_bin="$(find_tool swaymsg)"
 qs_bin="$(find_tool qs)"
 wtype_bin="$(find_tool wtype)"
+fd_bin="$(find_tool fd)"
 
 json_value() {
     local expression="$1"
@@ -93,6 +94,22 @@ write_launcher_entry steam_app_123 "Hydrogen Steam" true
 write_launcher_entry org.test.Terminal "Hydrogen Terminal" "touch $terminal_marker" true
 write_launcher_entry org.test.Broken "Hydrogen Broken" hydrogen-command-that-does-not-exist
 write_launcher_entry org.test.Hidden "Hydrogen Hidden" true false true
+
+test_bin="$test_root/bin"
+documents_dir="$test_root/Documents"
+opened_url_marker="$test_root/opened-url"
+command_marker="$test_root/command-arguments"
+special_file="$documents_dir/hydrogen-special # ação.txt"
+mkdir -p "$test_bin" "$documents_dir"
+printf 'conteúdo de teste' >"$special_file"
+printf 'não deve aparecer' >"$documents_dir/.hydrogen-special-hidden.txt"
+printf 'XDG_DOCUMENTS_DIR="%s"\n' "$documents_dir" >"$XDG_CONFIG_HOME/user-dirs.dirs"
+printf '#!/usr/bin/env bash\nprintf "%%s" "$1" >"$HYDROGEN_OPENED_URL_MARKER"\n' >"$test_bin/xdg-open"
+printf '#!/usr/bin/env bash\nprintf "%%s\\0" "$@" >"$HYDROGEN_COMMAND_MARKER"\n' >"$test_bin/hydrogen-record-args"
+chmod 0755 "$test_bin/xdg-open" "$test_bin/hydrogen-record-args"
+export HYDROGEN_OPENED_URL_MARKER="$opened_url_marker"
+export HYDROGEN_COMMAND_MARKER="$command_marker"
+export PATH="$test_bin:$(dirname "$fd_bin"):$PATH"
 
 "$sway_bin" -c "$project_root/tests/system/sway-headless.conf" -d >"$test_root/sway.log" 2>&1 &
 sway_pid=$!
@@ -224,6 +241,118 @@ done
 [[ "$(json_value 'value.data.actionable_error_count' <<<"$status_json")" -eq $((launcher_error_count + 1)) ]]
 persistent_error_count=$((launcher_error_count + 1))
 "$qs_bin" -p "$project_root/hydrogen" ipc call hydrogen.v1 panel close >/dev/null
+
+"$qs_bin" -p "$project_root/hydrogen" ipc call hydrogen.v1 panel open >/dev/null
+for _ in {1..50}; do
+    status_json="$("$qs_bin" -p "$project_root/hydrogen" ipc call hydrogen.v1 status 2>/dev/null || true)"
+    [[ "$(json_value 'value.data.panel' <<<"$status_json")" == "launcher" ]] && break
+    sleep 0.1
+done
+"$wtype_bin" -s 250 "hydrogen-special"
+for _ in {1..80}; do
+    status_json="$("$qs_bin" -p "$project_root/hydrogen" ipc call hydrogen.v1 status 2>/dev/null || true)"
+    [[ "$(json_value 'value.data.launcher_result_count' <<<"$status_json")" -eq 1 ]] && break
+    sleep 0.1
+done
+[[ "$(json_value 'value.data.launcher_result_count' <<<"$status_json")" -eq 1 ]]
+"$wtype_bin" -s 250 -k Return
+for _ in {1..80}; do
+    status_json="$("$qs_bin" -p "$project_root/hydrogen" ipc call hydrogen.v1 status 2>/dev/null || true)"
+    [[ -f "$opened_url_marker" && "$(json_value 'value.data.panel' <<<"$status_json")" == "null" ]] && break
+    sleep 0.1
+done
+expected_file_url="$(node -e 'process.stdout.write(require("url").pathToFileURL(process.argv[1]).href)' "$special_file")"
+[[ "$(<"$opened_url_marker")" == "$expected_file_url" ]]
+[[ "$(json_value 'value.data.launcher_history_count' <<<"$status_json")" -eq 3 ]]
+
+"$qs_bin" -p "$project_root/hydrogen" ipc call hydrogen.v1 panel open >/dev/null
+for _ in {1..50}; do
+    status_json="$("$qs_bin" -p "$project_root/hydrogen" ipc call hydrogen.v1 status 2>/dev/null || true)"
+    [[ "$(json_value 'value.data.panel' <<<"$status_json")" == "launcher" ]] && break
+    sleep 0.1
+done
+command_query=">hydrogen-record-args 'two words' '|' '\$HOME' '*.txt'"
+"$wtype_bin" -s 250 "$command_query" -k Return
+for _ in {1..80}; do
+    [[ -f "$command_marker" ]] && break
+    sleep 0.1
+done
+[[ "$(node -e 'const values=require("fs").readFileSync(process.argv[1]).toString().split("\0").filter(Boolean); process.stdout.write(JSON.stringify(values))' "$command_marker")" == '["two words","|","$HOME","*.txt"]' ]]
+for _ in {1..50}; do
+    status_json="$("$qs_bin" -p "$project_root/hydrogen" ipc call hydrogen.v1 status 2>/dev/null || true)"
+    [[ "$(json_value 'value.data.launcher_history_count' <<<"$status_json")" -eq 4 ]] && break
+    sleep 0.1
+done
+
+rm "$command_marker"
+"$qs_bin" -p "$project_root/hydrogen" ipc call hydrogen.v1 panel open >/dev/null
+for _ in {1..50}; do
+    status_json="$("$qs_bin" -p "$project_root/hydrogen" ipc call hydrogen.v1 status 2>/dev/null || true)"
+    [[ "$(json_value 'value.data.panel' <<<"$status_json")" == "launcher" ]] && break
+    sleep 0.1
+done
+"$wtype_bin" -s 250 ">!hydrogen-record-args private-value" -k Return
+for _ in {1..80}; do
+    [[ -f "$command_marker" ]] && break
+    sleep 0.1
+done
+status_json="$("$qs_bin" -p "$project_root/hydrogen" ipc call hydrogen.v1 status)"
+[[ "$(json_value 'value.data.launcher_history_count' <<<"$status_json")" -eq 4 ]]
+
+rm "$command_marker"
+"$qs_bin" -p "$project_root/hydrogen" ipc call hydrogen.v1 panel open >/dev/null
+for _ in {1..50}; do
+    status_json="$("$qs_bin" -p "$project_root/hydrogen" ipc call hydrogen.v1 status 2>/dev/null || true)"
+    [[ "$(json_value 'value.data.panel' <<<"$status_json")" == "launcher" ]] && break
+    sleep 0.1
+done
+"$wtype_bin" -s 250 ">_hydrogen-record-args terminal-value" -k Return
+for _ in {1..100}; do
+    [[ -f "$command_marker" ]] && break
+    sleep 0.1
+done
+grep -zqx 'terminal-value' "$command_marker"
+for _ in {1..50}; do
+    status_json="$("$qs_bin" -p "$project_root/hydrogen" ipc call hydrogen.v1 status 2>/dev/null || true)"
+    launcher_history_json="$(<"$XDG_STATE_HOME/hydrogen/launcher-history.json")"
+    [[ "$(json_value 'value.data.launcher_history_count' <<<"$status_json")" -eq 5 && "$(json_value 'value.items.length' <<<"$launcher_history_json")" -eq 5 ]] && break
+    sleep 0.1
+done
+[[ "$(json_value 'value.items.length' <<<"$launcher_history_json")" -eq 5 ]]
+
+kill "$hydrogen_pid"
+wait "$hydrogen_pid" || true
+hydrogen_pid=""
+"$qs_bin" -p "$project_root/hydrogen" --no-color -v >"$test_root/hydrogen-restart.log" 2>&1 &
+hydrogen_pid=$!
+for _ in {1..150}; do
+    status_json="$("$qs_bin" -p "$project_root/hydrogen" ipc call hydrogen.v1 status 2>/dev/null || true)"
+    [[ "$status_json" == *'"code":"success"'* && "$(json_value 'value.data.launcher_history_count' <<<"$status_json")" -eq 5 ]] && break
+    sleep 0.1
+done
+[[ "$(json_value 'value.data.launcher_history_count' <<<"$status_json")" -eq 5 ]]
+persistent_error_count="$(json_value 'value.data.actionable_error_count' <<<"$status_json")"
+
+"$qs_bin" -p "$project_root/hydrogen" ipc call hydrogen.v1 panel open >/dev/null
+for _ in {1..50}; do
+    status_json="$("$qs_bin" -p "$project_root/hydrogen" ipc call hydrogen.v1 status 2>/dev/null || true)"
+    [[ "$(json_value 'value.data.panel' <<<"$status_json")" == "launcher" ]] && break
+    sleep 0.1
+done
+"$wtype_bin" -s 250 ">" -k Down -k Down -k Return
+for _ in {1..80}; do
+    status_json="$("$qs_bin" -p "$project_root/hydrogen" ipc call hydrogen.v1 status 2>/dev/null || true)"
+    [[ "$(json_value 'value.data.launcher_history_count' <<<"$status_json")" -eq 0 ]] && break
+    sleep 0.1
+done
+[[ "$(json_value 'value.data.launcher_history_count' <<<"$status_json")" -eq 0 ]]
+for _ in {1..50}; do
+    launcher_history_json="$(<"$XDG_STATE_HOME/hydrogen/launcher-history.json")"
+    [[ "$(json_value 'value.items.length' <<<"$launcher_history_json")" -eq 0 ]] && break
+    sleep 0.1
+done
+[[ "$(json_value 'value.items.length' <<<"$launcher_history_json")" -eq 0 ]]
+! grep -Eq 'hydrogen-special|private-value|two words|terminal-value' "$test_root/hydrogen.log" "$test_root/hydrogen-restart.log"
 
 "$swaymsg_bin" output HEADLESS-2 disable >/dev/null
 for _ in {1..80}; do
@@ -367,8 +496,7 @@ for state_file in state.json launcher-history.json notification-history.json; do
 done
 launcher_history_json="$(<"$XDG_STATE_HOME/hydrogen/launcher-history.json")"
 [[ "$(json_value 'value.schema_version' <<<"$launcher_history_json")" -eq 1 ]]
-[[ "$(json_value 'value.items.length' <<<"$launcher_history_json")" -eq 2 ]]
-[[ "$(json_value 'value.items.every(item => item.kind === "application" && ["org.test.Common", "org.test.Terminal"].includes(item.desktop_entry))' <<<"$launcher_history_json")" == "true" ]]
+[[ "$(json_value 'value.items.length' <<<"$launcher_history_json")" -eq 0 ]]
 corrupt_copy_count=""
 for _ in {1..50}; do
     corrupt_copy_count="$(find "$XDG_STATE_HOME/hydrogen" -name 'state.corrupt-*.json' -type f | wc -l)"
@@ -395,4 +523,4 @@ fi
 wait "$hydrogen_pid" || true
 hydrogen_pid=""
 
-echo "PASS: Hydrogen validated application launch, terminal wrapping, actionable failures, history, bars, overlays, hotplug, window navigation, and shutdown."
+echo "PASS: Hydrogen validated applications, XDG files, structured/private/terminal commands, history restore/clear, privacy, overlays, window navigation, and shutdown."

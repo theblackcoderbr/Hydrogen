@@ -46,6 +46,7 @@ pkgs.mkShell {
     coreutils
     findutils
     fontconfig
+    fd
     foot
     gnugrep
     gnused
@@ -57,6 +58,7 @@ pkgs.mkShell {
     swayPkgs.sway-unwrapped
     xterm
     xwayland
+    xdg-utils
     wtype
   ];
 
